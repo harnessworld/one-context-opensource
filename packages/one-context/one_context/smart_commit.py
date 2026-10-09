@@ -670,10 +670,10 @@ def _is_feature_source(path: str, parts: tuple[str, ...]) -> bool:
         or "/production/visual-options/" in f"/{lowered}"
     ):
         return True
-    # Per-episode decomposition: teachback features may host deliverable
-    # episodes under ``production/episodes/<id>/`` that reuse the same
-    # skeleton buckets (content / timing / learning / slides / recorder) one
-    # level deeper. Generated media under ``episodes/<id>/{stills,videos,media}/``
+    # Per-episode decomposition: content-production features may host
+    # deliverable episodes under ``production/episodes/<id>/`` that reuse the
+    # same skeleton buckets (content / timing / learning / slides / recorder)
+    # one level deeper. Generated media under ``episodes/<id>/{stills,videos,media}/``
     # stays excluded by ``_is_excluded_path``; stray files directly under an
     # episode that are not inside a bucket stay ``ASK``.
     if "/production/episodes/" in f"/{lowered}":

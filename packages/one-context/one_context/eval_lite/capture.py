@@ -1,15 +1,17 @@
-"""capture — 一键建案：满意产物 → case baseline。
+"""capture — one-command case creation: satisfactory artifact → case baseline.
 
-D7 满意即标准（无 sign-off）：对满意产物跑一遍 assertions，
-pass 的入 baseline 期望，fail/error 列出供 review（暴露缺口是 capture 职责）。
-不调 cc（纯本地结构推断），真"一键建案"。
+The measured values of a satisfactory artifact become the standard: the
+artifact's assertions are executed once, passing ones enter the baseline
+expectations, failing/erroring ones are listed for review (surfacing gaps IS
+the job of capture). No agent CLI is involved (pure local structural
+inference), which is what makes it one-command.
 
-用法（cli 包装）：
-  onecxt eval capture --skill <name> --from <feature根> --prompt "<显式调用prompt>"
+Usage (CLI wrapper):
+  onecxt eval capture --skill <name> --from <artifact dir> --prompt "<the explicit invocation prompt>"
 
-产物：
-  skills/<name>/evals/<case>/baseline.json   # pass 断言的期望值快照
-  skills/<name>/evals/<case>/scenario.yaml   # case 配置
+Outputs:
+  skills/<name>/evals/<case>/baseline.json   # expectation snapshot of passing assertions
+  skills/<name>/evals/<case>/scenario.yaml   # case configuration
   skills/<name>/evals/<case>/prompts/explicit/01.md
 """
 from __future__ import annotations
@@ -41,24 +43,29 @@ class CaptureError(ValueError):
 
 @dataclass
 class CaptureReport:
-    """capture 结果摘要（cli 打印 + 供 review）。"""
+    """Summary of a capture run (printed by the CLI, useful for review)."""
 
     case_dir: Path
     passed: int
     failed: int
     errored: int
-    # fail/error 的断言 id + 原因（暴露产物缺口，供人决定补产物还是移除断言）
+    # Assertion ids + reasons for fail/error (artifact gaps; decide whether
+    # to add the missing artifact or drop the assertion).
     gaps: list[dict[str, Any]]
     baseline_path: Path
     scenario_path: Path
     prompt_path: Path
-    # D8 负控零拒绝：capture 只落 explicit 一条，负控=0 → 标记（run 时 trigger 维度 INSUFFICIENT）
+    # capture only records one explicit prompt; zero negative controls means
+    # the trigger dimension will be INSUFFICIENT_EVIDENCE at run time.
     needs_negatives: bool = True
 
 
 def _flatten_assertions(dims: dict[str, dict[str, Any]]) -> list[tuple[str, AssertionSpec]]:
-    """从维度模板收 (维度key, 断言) 列表——维度归属以 yaml 分组为准，
-    不是 kind 默认映射（assertion_map 默认只作 fallback）。"""
+    """Collect (dimension key, assertion) pairs from the dimension template.
+
+    Dimension ownership follows the yaml grouping; the kind-based default
+    mapping in assertion_map is only a fallback.
+    """
     out: list[tuple[str, AssertionSpec]] = []
     for dim_key, spec in dims.items():
         for a in spec.get("assertions", []) or []:
@@ -71,10 +78,12 @@ def _flatten_assertions(dims: dict[str, dict[str, Any]]) -> list[tuple[str, Asse
 
 
 def _expected_value(spec: AssertionSpec, result_detail: dict[str, Any]) -> Any:
-    """从断言结果 detail 取实测值作期望（满意度即标准）。
+    """Derive the expectation (measured value) from an assertion detail.
 
-    file_exists → True；json_field exists → True；数值类 → 实测值。
-    简化：file 类存 True（期望"存在"），其余存 spec 原参数（capture 时已 pass）。
+    file_exists → True; json_field exists → True; numeric kinds → measured
+    value. Simplified: file-kind assertions store True ("exists is
+    expected"); the rest store the spec's own parameters (they passed at
+    capture time).
     """
     if spec.kind in ("file_exists",):
         return True
@@ -95,21 +104,22 @@ def capture_case(
     case: str | None = None,
     dims_path: Path | None = None,
 ) -> CaptureReport:
-    """对满意产物固化成 case baseline。
+    """Freeze a satisfactory artifact into a case baseline.
 
-    from_dir: feature 根（含 production/ + remotion/，artifacts_base）。
-    case: 默认 = from_dir 目录名。
-    dims_path: 默认 skills/<skill>/eval.dimensions.yaml。
+    from_dir: the artifact root (used as the assertion path base).
+    case: defaults to the from_dir directory name.
+    dims_path: defaults to skills/<skill>/eval.dimensions.yaml.
     """
     from_dir = from_dir.resolve()
     if not from_dir.is_dir():
-        raise CaptureError(f"--from 目录不存在：{from_dir}")
+        raise CaptureError(f"--from directory does not exist: {from_dir}")
     if not prompt.strip():
-        raise CaptureError("--prompt 不能为空（首条 explicit 调用样本）")
+        raise CaptureError("--prompt must not be empty (the first explicit invocation sample)")
 
     case = case or from_dir.name
     if dims_path is None:
-        # 从 from_dir 向上找 repo 根（含 meta/repos.yaml），拼 skills/<skill>/eval.dimensions.yaml
+        # Walk up from from_dir to the workspace root (has meta/repos.yaml),
+        # then resolve skills/<skill>/eval.dimensions.yaml.
         root = _repo_root(from_dir)
         dims_path = root / "skills" / skill / "eval.dimensions.yaml"
     dims = load_dimensions(dims_path)
@@ -117,7 +127,7 @@ def capture_case(
     assertions = _flatten_assertions(dims)
     ctx = AssertionContext(
         sandbox_root=from_dir,
-        artifacts_base=from_dir,   # 路径基准 = feature 根
+        artifacts_base=from_dir,   # path base = artifact root
         final_text="",
         stdout="",
         stderr_tail="",
@@ -132,7 +142,7 @@ def capture_case(
     expectations: list[BaselineExpectation] = []
     gaps: list[dict[str, Any]] = []
     for (dim_key, spec), res in zip(assertions, results):
-        # 维度归属以 yaml 分组为准；role 由 blocking 决定（blocking→gate）
+        # Dimension ownership follows the yaml grouping; role from blocking (blocking→gate).
         if res.status == "pass":
             passed += 1
             expectations.append(BaselineExpectation(
@@ -150,10 +160,11 @@ def capture_case(
                 "dimension": dim_key,
                 "status": res.status,
                 "detail": res.detail,
-                "hint": "产物缺此文件/字段：补产物 re-pin，或从该 skill eval.dimensions.yaml 移除该断言",
+                "hint": "artifact is missing this file/field: add it and re-capture, "
+                        "or drop this assertion from the skill's eval.dimensions.yaml",
             })
 
-    # 写 case 目录（基于 repo 根，不依赖 cwd）
+    # Write the case directory relative to the workspace root (never cwd).
     root = _repo_root(from_dir)
     case_dir = root / "skills" / skill / "evals" / case
     case_dir.mkdir(parents=True, exist_ok=True)
@@ -173,8 +184,8 @@ def capture_case(
         baseline.model_dump_json(indent=2), encoding="utf-8"
     )
     import json
-    # baseline.json 写成可读 JSON（pydantic model_dump_json 已是）
-    _ = json.loads(baseline_path.read_text())  # 校验合法
+    # Verify the baseline parses as valid JSON (model_dump_json already is).
+    _ = json.loads(baseline_path.read_text())
 
     scenario = CaseScenario(
         skill=skill,
@@ -201,12 +212,12 @@ def capture_case(
         baseline_path=baseline_path,
         scenario_path=scenario_path,
         prompt_path=prompt_path,
-        needs_negatives=True,  # capture 只落 explicit；负控待人补（D8 run 时强制）
+        needs_negatives=True,  # capture only records the explicit prompt; negatives are added by hand
     )
 
 
 def _git_sha(repo: Path) -> str:
-    """best-effort 取 from_dir 所在仓的 HEAD sha（D9.2 可复现）。"""
+    """Best-effort HEAD sha of the repository containing from_dir (reproducibility)."""
     import subprocess
     try:
         out = subprocess.run(
@@ -219,7 +230,8 @@ def _git_sha(repo: Path) -> str:
 
 
 def _repo_root(start: Path) -> Path:
-    """从 start 向上找 repo 根（含 meta/repos.yaml）；找不到回退 start。"""
+    """Walk up from start looking for the workspace root (has meta/repos.yaml);
+    fall back to start itself."""
     p = start.resolve()
     for _ in range(10):
         if (p / "meta" / "repos.yaml").is_file():

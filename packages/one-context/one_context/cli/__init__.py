@@ -7,7 +7,7 @@ Sub-modules each own a coherent slice of the CLI:
     _adapt     adapter generation + git hook install/uninstall
     _smart_commit deterministic multi-repo commit/push workflow
 
-(Skill 评测 CLI 由 `one_context.eval_lite` 提供，见 `feature skill-systematic-eval`。)
+(The skill evaluation CLI is provided by `one_context.eval_lite`.)
 
 Each sub-module exposes a `register(sub: _SubParsersAction)` function
 that registers its subparsers. This file just chains them.

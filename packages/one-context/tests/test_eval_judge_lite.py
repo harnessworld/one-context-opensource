@@ -48,24 +48,24 @@ def test_parse_with_trailing_text():
 
 def test_parse_empty_text():
     r = _parse_judge_json("process", "")
-    assert r.error == "judge 无输出"
+    assert r.error == "judge produced no output"
     assert r.verdict == "FAIL"
 
 
 def test_parse_no_json_object():
     r = _parse_judge_json("process", "just plain text no braces")
-    assert "非 JSON" in r.error
+    assert "not JSON" in r.error
 
 
 def test_parse_missing_keys():
     obj = {"dimension": "x", "score": 0.5}
     r = _parse_judge_json("x", json.dumps(obj))
-    assert "缺字段" in r.error
+    assert "missing fields" in r.error
 
 
 def test_parse_invalid_verdict():
     r = _parse_judge_json("x", _valid_judge_json(verdict="MAYBE"))
-    assert "verdict 非法" in r.error
+    assert "verdict is invalid" in r.error
 
 
 def test_parse_score_clamped_high():
@@ -112,13 +112,13 @@ def test_verdict_exact_threshold():
 
 def test_judge_dimension_empty_rubric_raises():
     from one_context.eval_lite.judge_lite import judge_dimension
-    with pytest.raises(JudgeError, match="缺 judge_rubric"):
+    with pytest.raises(JudgeError, match="missing judge_rubric"):
         judge_dimension("x", "", "ctx", env={})
 
 
 def test_judge_dimension_short_rubric_raises():
     from one_context.eval_lite.judge_lite import judge_dimension
-    with pytest.raises(JudgeError, match="过短"):
+    with pytest.raises(JudgeError, match="too short"):
         judge_dimension("x", "short", "ctx", env={})
 
 
@@ -133,8 +133,8 @@ def test_judge_dimension_real(tmp_path):
     env = {**os.environ}
     r = judge_dimension(
         "style",
-        "判定风格一致性：产出文件结构是否与 SKILL.md 声明一致，缺失=0，全在=1。score>=0.8 PASS。",
-        "测试上下文：产出了 3 个文件，SKILL.md 声明 3 个。",
+        "Grade style consistency: does the produced file structure match the SKILL.md declaration; missing=0, all present=1. score>=0.8 means PASS.",
+        "Test context: 3 files were produced; SKILL.md declares 3.",
         env=env,
         workdir=str(tmp_path),
         timeout=60,

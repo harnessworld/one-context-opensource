@@ -22,7 +22,7 @@ from one_context.eval.assertions import AssertionSpec
 
 _MIN_DIMS_YAML = """\
 outcome:
-  why_it_matters: "产物完整"
+  why_it_matters: "artifacts are complete"
   role: gate
   modes_ok: [quick, full]
   assertions:
@@ -31,12 +31,12 @@ outcome:
     - kind: file_exists
       path: "production/content/00-structure.md"
 process:
-  why_it_matters: "工具链步骤"
+  why_it_matters: "toolchain steps"
   role: score
   modes_ok: [full]
   threshold: 0.8
 style:
-  why_it_matters: "风格一致"
+  why_it_matters: "style consistency"
   role: gate
   modes_ok: [quick, full]
   assertions:
@@ -44,21 +44,21 @@ style:
       path: "production/timing/flip-checklist.md"
       blocking: false
 efficiency:
-  why_it_matters: "效率达标"
+  why_it_matters: "efficiency is acceptable"
   role: score
   modes_ok: [quick, full]
   threshold: 0.9
   tolerance: 0.2
 surface:
-  why_it_matters: "维护面稳定"
+  why_it_matters: "maintenance surface stays stable"
   role: gate
   modes_ok: [quick, full]
 trigger:
-  why_it_matters: "触发正确"
+  why_it_matters: "triggering is correct"
   role: gate
   modes_ok: [probe, full]
 extension:
-  why_it_matters: "扩展检查"
+  why_it_matters: "extension checks"
   role: gate
   modes_ok: [quick, full]
 """
@@ -194,14 +194,14 @@ def test_capture_failed_gaps(tmp_path):
 
 
 def test_capture_from_dir_not_exist(tmp_path):
-    with pytest.raises(CaptureError, match="不存在"):
+    with pytest.raises(CaptureError, match="does not exist"):
         capture_case(skill="x", from_dir=Path("/nonexistent_dir_xyz"), prompt="test")
 
 
 def test_capture_empty_prompt(tmp_path):
     root, feat_dir, _ = _build_one_context_tree(tmp_path,
         feature_files={"production/content/01-script.md": "# s"})
-    with pytest.raises(CaptureError, match="不能为空"):
+    with pytest.raises(CaptureError, match="must not be empty"):
         capture_case(skill="test-skill", from_dir=feat_dir, prompt="   ")
 
 

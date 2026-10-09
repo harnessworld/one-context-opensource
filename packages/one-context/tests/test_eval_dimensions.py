@@ -46,9 +46,9 @@ def test_load_dimensions_valid_yaml(tmp_path):
 def test_load_dimensions_partial_merge(tmp_path):
     # Only override 3 dims; all 7 present in result
     content = (
-        "outcome:\n  why_it_matters: '产物资产'\n"
-        "process:\n  why_it_matters: '工具链'\n"
-        "style:\n  why_it_matters: '风格一致'"
+        "outcome:\n  why_it_matters: 'artifact value'\n"
+        "process:\n  why_it_matters: 'toolchain'\n"
+        "style:\n  why_it_matters: 'style consistency'"
     )
     p = _dims_yaml(tmp_path, content)
     with pytest.raises(DimensionTemplateLoadError, match="why_it_matters"):
@@ -67,7 +67,7 @@ def test_load_dimensions_all_filled(tmp_path):
 def test_validate_rejects_unknown_dimension(tmp_path):
     content = _valid_dims_yaml() + "\nunknown_dim:\n  why_it_matters: 'x'"
     p = _dims_yaml(tmp_path, content)
-    with pytest.raises(DimensionTemplateLoadError, match="未知维度"):
+    with pytest.raises(DimensionTemplateLoadError, match="unknown dimension"):
         load_dimensions(p)
 
 

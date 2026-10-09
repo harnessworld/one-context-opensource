@@ -133,6 +133,28 @@ as per-tool stubs pointing back to their canonical `SKILL.md`. See
 full adapter matrix, and [`docs/configuration.md`](docs/configuration.md)
 for the main manifest fields.
 
+## Skill evaluation (experimental)
+
+`onecxt eval` regression-tests your skills against a captured known-good
+artifact baseline. Three run modes grade with increasing depth:
+`quick` (local assertions, no tokens), `probe` (spawn the agent CLI and
+verify the skill actually triggers), and `full` (real agent run + LLM
+judge on subjective dimensions).
+
+```bash
+# Freeze a satisfactory artifact as the baseline
+onecxt eval capture --skill my-skill --from features/cat/my-feature --prompt "..."
+
+onecxt eval run my-skill/my-case                # quick (default)
+onecxt eval run my-skill/my-case --mode probe   # trigger verification
+onecxt eval report my-skill/my-case --format html
+```
+
+The agent CLI defaults to `claude`; override the binary with
+`ONECXT_EVAL_AGENT_BIN`. Probe and full modes need Anthropic credentials
+and degrade to `INSUFFICIENT_EVIDENCE` when they are missing; quick runs
+are fully local.
+
 ## Repository layout
 
 | Path | Contents | Owner |
@@ -192,7 +214,8 @@ for the main manifest fields.
   `onecxt adapt dev`, and `adapt --check`; consult the badge above for
   the latest run results.
 - Core workspace operations run locally. Repository sync uses Git remotes;
-  optional skill evaluation can call a configured model provider.
+  optional skill evaluation (`onecxt eval`) can invoke an agent CLI (default
+  `claude`, override via `ONECXT_EVAL_AGENT_BIN`) and a model provider.
 
 ## License
 

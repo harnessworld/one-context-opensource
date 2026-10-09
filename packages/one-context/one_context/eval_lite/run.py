@@ -1,12 +1,17 @@
-"""run — 三档评测执行。
+"""run — evaluation execution across the three modes.
 
-quick:  不 spawn cc，对 <case>.target_path 重跑 baseline 断言，
-        每条结果 vs baseline 期望 → 退化判定（B 语义，真正验"改好改坏"）。
-probe:  spawn cc stream-json 跑四类 prompt，只验 skill 触发 y/n（trace.py）。
-        触发假设脊椎（D8）：负控误触 / 正控未触 = trigger 维度 FAIL。
-full:   git worktree 隔离 → spawn cc 产出 → quick 断言 + LLM judge 双轨。
+quick:  no agent spawn; re-runs the baseline assertions against
+        <case>.target_path and compares every result with the baseline
+        expectation → regression verdict (verifies "did I break it?").
+probe:  spawns the agent CLI in stream-json mode across the four prompt
+        categories and only verifies whether the skill triggered yes/no
+        (trace.py). Trigger-hypothesis spine: a negative-control misfire or
+        a missed positive control = trigger dimension FAIL.
+full:   spawns the agent CLI in the workspace root to produce artifacts →
+        quick assertions + LLM judge on subjective dimensions.
 
-probe 档只评 trigger 一维（D8 脊椎不附庸），其余维度 probe 不覆盖。
+probe evaluates only the trigger dimension; the other dimensions are not
+covered by probe.
 """
 from __future__ import annotations
 
@@ -26,6 +31,7 @@ from one_context.eval_lite.trace import (
     CcSpawnError,
     NoAuthError,
     TriggerEvidence,
+    agent_bin,
     collect_cc_version,
     parse_skill_trigger,
     spawn_cc_probe,
@@ -47,38 +53,41 @@ class RunError(ValueError):
 
 @dataclass
 class QuickResult:
-    """quick run 结果。"""
+    """Result of a quick run."""
 
     run_record: RunRecord
-    deltas: list[dict[str, Any]] = field(default_factory=list)  # 退化明细
+    deltas: list[dict[str, Any]] = field(default_factory=list)  # regression details
 
 
 @dataclass
 class ProbeResult:
-    """probe run 结果：只评 trigger 一维（D8 脊椎）。"""
+    """Result of a probe run: only the trigger dimension is evaluated."""
 
     run_record: RunRecord
-    evidence: list[dict[str, Any]] = field(default_factory=list)  # 每条 prompt 触发证据
+    evidence: list[dict[str, Any]] = field(default_factory=list)  # per-prompt trigger evidence
 
 
 def _load_case(case_dir: Path) -> tuple[CaseScenario, Baseline]:
-    """读 scenario.yaml + baseline.json。"""
+    """Read scenario.yaml + baseline.json."""
     scenario_path = case_dir / "scenario.yaml"
     baseline_path = case_dir / "baseline.json"
     if not scenario_path.is_file():
-        raise RunError(f"缺 scenario.yaml：{scenario_path}")
+        raise RunError(f"missing scenario.yaml: {scenario_path}")
     if not baseline_path.is_file():
-        raise RunError(f"缺 baseline.json：{baseline_path}")
+        raise RunError(f"missing baseline.json: {baseline_path}")
     scenario = CaseScenario(**yaml.safe_load(scenario_path.read_text(encoding="utf-8")))
     baseline = Baseline(**json.loads(baseline_path.read_text(encoding="utf-8")))
     return scenario, baseline
 
 
 def _flat_specs(case_dir: Path, scenario: CaseScenario, baseline: Baseline) -> list[AssertionSpec]:
-    """从维度模板收断言（与 capture 同法），但只取 baseline 收录的那批（已 sign-off 的）。
+    """Collect assertions from the dimension template (same method as
+    capture), but only the ones recorded in the baseline.
 
-    D7：baseline 之外的断言（capture 时 fail/error 未入）在 quick 里不评——
-    那批是 capture 阶段已知的产物缺口，不是退化的信号，避免误报。
+    Assertions outside the baseline (the ones that failed/errored at capture
+    time) are NOT evaluated in quick mode — they are known artifact gaps
+    from the capture stage, not regression signals, and evaluating them
+    would produce false alarms.
     """
     dims_path = Path(scenario.dimension_config)
     dims = load_dimensions(dims_path)
@@ -89,7 +98,7 @@ def _flat_specs(case_dir: Path, scenario: CaseScenario, baseline: Baseline) -> l
         for a in spec.get("assertions", []) or []:
             d = dict(a)
             if d.get("id") not in expected_ids:
-                continue  # 未入 baseline 的不评（capture 缺口，非退化）
+                continue  # not in the baseline → skip (capture gap, not a regression)
             d.setdefault("kind", "file_exists")
             d.setdefault("blocking", True)
             out.append(AssertionSpec(**{k: v for k, v in d.items() if k in AssertionSpec.model_fields}))
@@ -112,10 +121,11 @@ def _new_run_id() -> str:
 
 
 def quick_run(skill: str, case: str, *, skills_root: Path | None = None) -> QuickResult:
-    """quick 档：重跑 baseline 断言 vs 期望值，判退化。
+    """quick mode: re-run baseline assertions vs expectations, detect regressions.
 
-    语义 B：当前断言 pass → 维度 PASS；当前 fail 而 baseline期望(pass) → 退化 FAIL。
-    门控维度任一退化 → case FAIL。
+    Semantics: current assertion passes → dimension PASS; current assertion
+    fails while the baseline expected a pass → regression FAIL. Any gate
+    dimension with a regression → case FAIL.
     """
     skills_root = skills_root or Path("skills")
     case_dir = skills_root / skill / "evals" / case
@@ -123,7 +133,7 @@ def quick_run(skill: str, case: str, *, skills_root: Path | None = None) -> Quic
 
     target = Path(scenario.target_path)
     if not target.is_dir():
-        raise RunError(f"target_path 不存在：{target}")
+        raise RunError(f"target_path does not exist: {target}")
 
     specs = _flat_specs(case_dir, scenario, baseline)
     ctx = AssertionContext(
@@ -132,7 +142,7 @@ def quick_run(skill: str, case: str, *, skills_root: Path | None = None) -> Quic
     )
     results = run_assertions(specs, ctx)
 
-    # 每条断言判定：当前 pass？
+    # Per-assertion check: does it pass right now?
     id_to_dim = {e.assertion_id: e.dimension for e in baseline.expectations}
     id_to_role = {e.assertion_id: ("gate" if e.role == "gate" else "score") for e in baseline.expectations}
     dim_status: dict[str, list[tuple[str, bool]]] = {}  # dim -> [(assertion_id, currently_pass)]
@@ -143,20 +153,20 @@ def quick_run(skill: str, case: str, *, skills_root: Path | None = None) -> Quic
         currently_pass = (res.status == "pass")
         dim_status.setdefault(dim, []).append((spec.id, currently_pass))
         if res.status != "pass":
-            # baseline 当时 pass（入了 baseline），现在不 pass = 退化
+            # The baseline passed at capture time; it does not pass now = regression.
             deltas.append({
                 "assertion_id": spec.id,
                 "dimension": dim,
                 "role": id_to_role.get(spec.id),
                 "current_status": res.status,
                 "detail": res.detail,
-                "regression": True,  # baseline=pass → now≠pass = 退化
+                "regression": True,
             })
 
-    # D6① 维度聚合：gate 维度任一不 pass → 维度 FAIL；score 看 ratio
+    # Dimension aggregation: any non-pass in a gate dimension → FAIL; score uses ratio.
     dim_results: list[DimensionResult] = []
     for dim, items in dim_status.items():
-        role = items[0][1]  # placeholder, 取下面真实 role
+        role = items[0][1]  # placeholder, replaced by the real role below
         role = id_to_role.get(items[0][0], "gate")
         all_pass = all(p for _, p in items)
         if role == "gate":
@@ -169,19 +179,19 @@ def quick_run(skill: str, case: str, *, skills_root: Path | None = None) -> Quic
             score=None, summary=f"{sum(1 for _,p in items if p)}/{len(items)} pass",
         ))
 
-    # D6② case verdict：任一 gate 维度 FAIL → FAIL
+    # Case verdict: any gate dimension FAIL → FAIL.
     any_gate_fail = any(d.role == "gate" and d.verdict == "FAIL" for d in dim_results)
     case_verdict_v: Verdict = "FAIL" if any_gate_fail else "PASS"
     rationale = ""
     failed_dims = [d.dimension for d in dim_results if d.verdict == "FAIL"]
     if failed_dims:
-        rationale = f"门控维度退化：{','.join(failed_dims)}"
+        rationale = f"gate dimension regression: {','.join(failed_dims)}"
 
     run_record = RunRecord(
         run_id=_new_run_id(),
         skill=skill, case=case, mode="quick",
         git_sha=_git_sha(target),
-        cc_version="",  # quick 不调 cc
+        cc_version="",  # quick does not spawn the agent
         started_at=str(int(time.time())),
         duration_ms=0,
         verdict=CaseVerdict(
@@ -191,14 +201,15 @@ def quick_run(skill: str, case: str, *, skills_root: Path | None = None) -> Quic
         ),
         warnings=[],
     )
-    # D9.2 校验（quick 不要求 cc_version，但 git_sha 必须有；缺 → INSUFFICIENT_EVIDENCE）
+    # Reproducibility check (quick does not require cc_version but git_sha is
+    # mandatory; missing → INSUFFICIENT_EVIDENCE).
     if not run_record.git_sha:
         run_record.verdict.verdict = "INSUFFICIENT_EVIDENCE"
-        run_record.verdict.rationale = (run_record.verdict.rationale or "") + " 缺 git_sha（不可复现）"
+        run_record.verdict.rationale = (run_record.verdict.rationale or "") + " missing git_sha (not reproducible)"
     elif insuff_if_unreproducible(run_record) == "INSUFFICIENT_EVIDENCE":
         run_record.verdict.verdict = "INSUFFICIENT_EVIDENCE"
 
-    # 写 __runs/<runId>.json（保留不滚动删，D3）
+    # Persist __runs/<runId>.json (append-only history, never auto-pruned).
     runs_dir = case_dir / "__runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
     (runs_dir / f"{run_record.run_id}.json").write_text(
@@ -216,17 +227,20 @@ def probe_run(
     max_turns: int = 2,
     timeout: int = 180,
 ) -> ProbeResult:
-    """probe 档：spawn cc 跑四类 prompt，只验 skill 触发 y/n（D8 脊椎）。
+    """probe mode: spawn the agent CLI across the four prompt categories and
+    only verify skill triggering yes/no (the trigger-hypothesis spine).
 
-    只评 trigger 一维。正控（explicit/implicit/context）期望触发、负控（negative）
-    期望不触发。负控误触 / 正控未触发 → trigger FAIL → case FAIL。
-    无负控 → D9.5 负控零拒绝 → INSUFFICIENT_EVIDENCE。
-    无 key → 整体降级 INSUFFICIENT_EVIDENCE，不阻塞 quick（D8）。
+    Only the trigger dimension is evaluated. Positive controls
+    (explicit/implicit/context) must trigger; the negative control must NOT.
+    A negative misfire or a missed positive control → trigger FAIL → case FAIL.
+    No negative control at all → INSUFFICIENT_EVIDENCE.
+    Missing credentials degrade the whole probe to INSUFFICIENT_EVIDENCE;
+    quick mode is not blocked by that.
     """
     skills_root = skills_root or Path("skills")
     case_dir = skills_root / skill / "evals" / case
     scenario, _baseline = _load_case(case_dir)
-    repo_root = skills_root.resolve().parent  # cc cwd：读项目 CLAUDE.md + skills/
+    repo_root = skills_root.resolve().parent  # agent cwd: reads the project context + skills/
 
     prompts = scenario.prompts or []
     positives = [p for p in prompts if p.category in ("explicit", "implicit", "context")]
@@ -244,7 +258,7 @@ def probe_run(
         )
         return ProbeResult(run_record=rec, evidence=[])
 
-    # D9.5 负控零拒绝：无负控 → trigger 维度无证据 → INSUFFICIENT
+    # Zero negative controls → no evidence for the trigger dimension.
     if not negatives:
         rec = RunRecord(
             run_id=run_id, skill=skill, case=case, mode="probe",
@@ -255,15 +269,15 @@ def probe_run(
                 dimensions=[DimensionResult(
                     dimension="trigger", role="gate",
                     verdict="INSUFFICIENT_EVIDENCE",
-                    summary="无负控 prompt（D8：capture 需补 negative case）",
+                    summary="no negative-control prompt (capture needs a negative case added)",
                 )],
-                rationale="负控零拒绝：未补 negative prompt，trigger 维度无法判定",
+                rationale="zero negative controls: the trigger dimension cannot be judged",
             ),
             warnings=["NO_NEGATIVE"],
         )
         return _write(rec)
 
-    # 逐条 spawn
+    # Spawn per prompt.
     evidence: list[TriggerEvidence] = []
     total_cost = 0.0
     total_duration = 0
@@ -284,7 +298,7 @@ def probe_run(
                 duration_ms=parsed["duration_ms"],
                 num_turns=parsed["num_turns"],
             )
-            # 落 transcript（可复现 D9.2）
+            # Persist the transcript (reproducibility).
             transcripts_dir.mkdir(parents=True, exist_ok=True)
             tp = transcripts_dir / f"{run_id}.{p.category}.ndjson"
             tp.write_text(stdout, encoding="utf-8")
@@ -293,7 +307,7 @@ def probe_run(
             auth_failed = True
             ev = TriggerEvidence(
                 category=p.category, prompt=p.prompt, triggered=False,
-                error="无 ANTHROPIC key，probe 降级",
+                error="no Anthropic credentials; probe degraded",
             )
         except CcSpawnError as e:
             ev = TriggerEvidence(
@@ -306,7 +320,7 @@ def probe_run(
             total_duration += ev.duration_ms
 
     warnings: list[str] = []
-    # 无 key → 整体降级 INSUFFICIENT（D8，不阻塞 quick）
+    # Missing credentials → degrade the whole run (does not block quick).
     if auth_failed:
         rec = RunRecord(
             run_id=run_id, skill=skill, case=case, mode="probe",
@@ -319,15 +333,16 @@ def probe_run(
                 dimensions=[DimensionResult(
                     dimension="trigger", role="gate",
                     verdict="INSUFFICIENT_EVIDENCE",
-                    summary="无 key，probe 未执行（降级不阻塞 quick）",
+                    summary="no credentials; probe skipped (degraded, does not block quick)",
                 )],
-                rationale="无 ANTHROPIC key",
+                rationale="missing Anthropic credentials",
             ),
             warnings=["NO_AUTH"],
         )
         return _write(rec)
 
-    # 聚合 trigger 维度：负控误触 / 正控未触发 → FAIL（error 项不参与判定，记 warning）
+    # Aggregate the trigger dimension: negative misfire / missed positive →
+    # FAIL (error entries do not participate; they become warnings).
     errors = [e for e in evidence if e.error]
     if errors:
         warnings.append("PROBE_ERRORS")
@@ -337,20 +352,21 @@ def probe_run(
 
     if neg_misfires:
         tri_verdict: Verdict = "FAIL"
-        rationale = f"负控误触：{[e.category for e in neg_misfires]}"
+        rationale = f"negative-control misfire: {[e.category for e in neg_misfires]}"
     elif pos_misses:
         tri_verdict = "FAIL"
-        rationale = f"正控未触发：{[e.category for e in pos_misses]}"
+        rationale = f"positive control did not trigger: {[e.category for e in pos_misses]}"
     else:
         tri_verdict = "PASS"
         rationale = ""
     case_v: Verdict = "FAIL" if tri_verdict == "FAIL" else "PASS"
 
-    # summary 区分正控/负控语义（负控期望不触发，"触发数/总数" 反语义）
+    # Summary distinguishes positive/negative semantics (for negatives,
+    # "triggered/total" would be inverted).
     pos_n = sum(1 for e in evidence if e.category in ("explicit", "implicit", "context") and not e.error)
     neg_n = sum(1 for e in evidence if e.category == "negative" and not e.error)
-    trigger_summary = (f"正控 {pos_n - len(pos_misses)}/{pos_n} 触发, "
-                       f"负控 {len(neg_misfires)}/{neg_n} 误触")
+    trigger_summary = (f"positives triggered {pos_n - len(pos_misses)}/{pos_n}, "
+                       f"negatives misfired {len(neg_misfires)}/{neg_n}")
 
     run_record = RunRecord(
         run_id=run_id, skill=skill, case=case, mode="probe",
@@ -369,10 +385,10 @@ def probe_run(
         ),
         warnings=warnings,
     )
-    # D9.2：probe 缺 cc_version → INSUFFICIENT
+    # Reproducibility: probe missing cc_version → INSUFFICIENT_EVIDENCE.
     if insuff_if_unreproducible(run_record) == "INSUFFICIENT_EVIDENCE":
         run_record.verdict.verdict = "INSUFFICIENT_EVIDENCE"
-        run_record.verdict.rationale = (run_record.verdict.rationale or "") + " 缺 cc_version（不可复现）"
+        run_record.verdict.rationale = (run_record.verdict.rationale or "") + " missing cc_version (not reproducible)"
     _write(run_record)
     return ProbeResult(run_record=run_record,
                        evidence=[_ev_dict(e) for e in evidence])
@@ -393,7 +409,7 @@ def _ev_dict(e: TriggerEvidence) -> dict[str, Any]:
 
 @dataclass
 class FullResult:
-    """full run 结果：trigger 门控 + judge 主观维度。"""
+    """Result of a full run: trigger gate + judge on subjective dimensions."""
 
     run_record: RunRecord
     evidence: list[dict[str, Any]] = field(default_factory=list)
@@ -411,9 +427,11 @@ def _fmt_input(inp: Any) -> str:
 
 
 def _trace_summary_for_judge(ndjson_text: str, target_skill: str, limit: int = 2000) -> str:
-    """从 cc 的 stream-json trace 抠工具调用序列 + 末段结果，作 judge context。
+    """Extract the tool-call sequence + trailing result from the agent's
+    stream-json trace as judge context.
 
-    ponytail: 限长防 prompt 爆；只取 tool_use 序列 + 末段 result 文本。
+    Length-capped to keep the prompt small; only the tool_use sequence and
+    the final result text are included.
     """
     import json as _json
     calls: list[str] = []
@@ -437,12 +455,12 @@ def _trace_summary_for_judge(ndjson_text: str, target_skill: str, limit: int = 2
                 elif b.get("type") == "text":
                     t = (b.get("text") or "").strip()
                     if t:
-                        calls.append(f'文本: {t[:120]}')
+                        calls.append(f'text: {t[:120]}')
         if d.get("type") == "result":
             result_text = d.get("result", "") or ""
-    seq = " → ".join(calls[:40]) if calls else "(无工具调用)"
-    return (f"目标 skill: {target_skill}\n工具调用序列:\n{seq}\n\n"
-            f"末段结果:\n{result_text[:500]}")[:limit]
+    seq = " → ".join(calls[:40]) if calls else "(no tool calls)"
+    return (f"target skill: {target_skill}\ntool call sequence:\n{seq}\n\n"
+            f"final result:\n{result_text[:500]}")[:limit]
 
 
 def _write_run_record(case_dir: Path, rec: RunRecord) -> None:
@@ -461,18 +479,23 @@ def full_run(
     max_turns: int = 6,
     timeout: int = 300,
 ) -> FullResult:
-    """full 档：主仓 spawn cc 跑 skill 收 trace → trigger 门控 → judge 主观。
+    """full mode: spawn the agent CLI in the workspace root, collect the
+    trace → trigger gate → judge on subjective dimensions.
 
-    不用 worktree 隔离（C-05 实跑推翻）：content-pipeline media(WAV)不入 git → worktree
-    缺输入 cc 跑不动；CLAUDE_CONFIG_DIR 隔离让 cc 不识别项目 skill 被迫替换。两个假性问题
-    盖过隔离价值，故 full 在主仓跑（cc 能识别 skill + 有 media，如 probe）。D9.4 过程验证
-    模式由 trigger 门控承载短路（不重复 quick 客观断言）。
+    Runs in the main workspace (not an isolated worktree): feature media and
+    generated inputs that are not tracked by git would be missing from a
+    worktree, and isolating the agent's config would hide the project's
+    skills. The trigger gate carries the process-verification short-circuit
+    (quick's objective assertions are not repeated).
 
-    顺序（D9.4：便宜门控先挡明显 FAIL 省 judge token）：
-      1. trigger 门控：trace 验 skill 触发，未触发 → 短路不 judge
-      2. judge 主观维度（process 等有 judge_rubric 的 score 维度）：锁 JSON rubric
-    cc 在主仓跑可能改 tracked 文件，finally 用 before/after diff 差集记 cc 改动入
-    warnings 供水猿处置（不自动 checkout，避免误删留材）。
+    Order (cheap gates first, saving judge tokens):
+      1. trigger gate: the trace must show the target skill triggered,
+         otherwise short-circuit (no judge);
+      2. judge the subjective score dimensions (those carrying judge_rubric)
+         with the locked JSON rubric.
+    The agent may modify tracked files, so a before/after `git diff --name-only`
+    delta is recorded in warnings for manual review (no automatic checkout,
+    to avoid discarding work).
     """
     import os
     import subprocess
@@ -500,8 +523,8 @@ def full_run(
                 verdict="INSUFFICIENT_EVIDENCE",
                 dimensions=[DimensionResult(dimension="trigger", role="gate",
                             verdict="INSUFFICIENT_EVIDENCE",
-                            summary="无 key，full 未执行（降级不阻塞 quick）")],
-                rationale="无 ANTHROPIC key",
+                            summary="no credentials; full skipped (degraded, does not block quick)")],
+                rationale="missing Anthropic credentials",
             ),
             warnings=["NO_AUTH"],
         )
@@ -518,8 +541,8 @@ def full_run(
                 verdict="INSUFFICIENT_EVIDENCE",
                 dimensions=[DimensionResult(dimension="trigger", role="gate",
                             verdict="INSUFFICIENT_EVIDENCE",
-                            summary="无 explicit prompt，full 无法 spawn cc")],
-                rationale="无 explicit prompt",
+                            summary="no explicit prompt; full cannot spawn the agent")],
+                rationale="no explicit prompt",
             ),
         )
         _write_run_record(case_dir, rec)
@@ -535,7 +558,8 @@ def full_run(
     case_v: Verdict = "PASS"
     cc_cwd = str(repo_root)
 
-    # 跑前快照未提交改动，跑后差集 = cc 改的（排除已存在改动避免假阳性）
+    # Snapshot uncommitted changes before the run; the after-run delta is the
+    # agent's change set (excluding pre-existing changes avoids false positives).
     try:
         _b = subprocess.run(["git", "diff", "--name-only"],
                             cwd=cc_cwd, capture_output=True, text=True, timeout=10)
@@ -545,7 +569,7 @@ def full_run(
 
     try:
         env = dict(os.environ)
-        cmd = ["claude", "-p", prompt, "--output-format", "stream-json",
+        cmd = [agent_bin(), "-p", prompt, "--output-format", "stream-json",
                "--verbose", "--max-turns", str(max_turns)]
         try:
             r = subprocess.run(cmd, cwd=cc_cwd, env=env,
@@ -558,8 +582,8 @@ def full_run(
                 started_at=str(started), duration_ms=timeout * 1000,
                 verdict=CaseVerdict(verdict="INSUFFICIENT_EVIDENCE",
                     dimensions=[DimensionResult(dimension="trigger", role="gate",
-                        verdict="INSUFFICIENT_EVIDENCE", summary="cc spawn 超时")],
-                    rationale=f"cc spawn 超时 {timeout}s"),
+                        verdict="INSUFFICIENT_EVIDENCE", summary="agent spawn timed out")],
+                    rationale=f"agent spawn timed out after {timeout}s"),
                 warnings=["CC_TIMEOUT"],
             )
             _write_run_record(case_dir, rec)
@@ -582,16 +606,16 @@ def full_run(
             "transcript_path": str(tr_path),
         }]
 
-        # trigger 门控：未触发 → 短路（D9.4）
+        # Trigger gate: not triggered → short-circuit (no judge).
         trigger_v: Verdict = "PASS" if parsed["triggered"] else "FAIL"
         dim_results.append(DimensionResult(
             dimension="trigger", role="gate", verdict=trigger_v,
             evidence=trigger_probes,
-            summary=f"explicit 触发={'是' if parsed['triggered'] else '否'}",
+            summary=f"explicit triggered={'yes' if parsed['triggered'] else 'no'}",
         ))
         if not parsed["triggered"]:
             case_v = "FAIL"
-            rationale = "trigger 门控：cc 未触发目标 skill，过程无意义（D9.4 短路）"
+            rationale = "trigger gate: the agent did not invoke the target skill; the process verdict is meaningless (short-circuit)"
         else:
             context = _trace_summary_for_judge(trace_ndjson, skill)
             for dim_key, spec in dims.items():
@@ -610,7 +634,7 @@ def full_run(
                     dim_results.append(DimensionResult(
                         dimension=dim_key, role="score",
                         verdict="INSUFFICIENT_EVIDENCE",
-                        summary=f"rubric 不可执行: {e}",
+                        summary=f"rubric not executable: {e}",
                     ))
                     warnings.append("JUDGE_RUBRIC_INVALID")
                     continue
@@ -630,9 +654,9 @@ def full_run(
                     rationale = (rationale + "; " if rationale else "") + \
                                 f"{dim_key} judge FAIL (score={jr.score:.2f})"
     except Exception as e:
-        # spawn cc / judge 以外的意外异常兜底（cc 跑废、trace 解析崩等）
+        # Catch-all for unexpected failures (agent crashed, trace parsing blew up, etc.).
         case_v = "INSUFFICIENT_EVIDENCE"
-        rationale = f"full 意外异常: {e}"
+        rationale = f"full run hit an unexpected exception: {e}"
         warnings.append("FULL_EXCEPTION")
         dim_results = dim_results or [DimensionResult(
             dimension="trigger", role="gate",
@@ -660,6 +684,6 @@ def full_run(
     )
     if insuff_if_unreproducible(rec) == "INSUFFICIENT_EVIDENCE":
         rec.verdict.verdict = "INSUFFICIENT_EVIDENCE"
-        rec.verdict.rationale = (rec.verdict.rationale or "") + " 缺 cc_version（不可复现）"
+        rec.verdict.rationale = (rec.verdict.rationale or "") + " missing cc_version (not reproducible)"
     _write_run_record(case_dir, rec)
     return FullResult(run_record=rec, evidence=trigger_probes)

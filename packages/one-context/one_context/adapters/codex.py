@@ -47,8 +47,8 @@ _UNSUPPORTED_KINDS_BY_CODEX: tuple[tuple[str, str, str], ...] = (
     # (source_kind, why_skipped, where_user_would_define_it)
     (
         "command",
-        "onecxt 不分发 commands — 见 spec 非目标",
-        "用户在 ~/.codex/commands/ 自行定义（Codex 无项目级 commands 约定）",
+        "onecxt does not distribute commands — out of scope by design",
+        "Users define their own in ~/.codex/commands/ (Codex has no project-level commands convention)",
     ),
 )
 # NOTE: `rule` is deliberately NOT listed — rules are distributed

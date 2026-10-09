@@ -48,7 +48,7 @@ jobs:
       - name: Generate tool surfaces (adapt)
         run: onecxt adapt dev
 
-      - name: Verify generated surfaces (adapt --check)
+      - name: Verify regeneration is deterministic (adapt --check)
         run: onecxt adapt dev --check
 
       - name: Tracked AGENTS.md must match generation

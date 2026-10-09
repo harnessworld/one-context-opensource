@@ -156,7 +156,7 @@ def test_render_report_no_runs(tmp_path):
     cd.mkdir(parents=True, exist_ok=True)
     p = render_report("test-skill", "test-case", skills_root=skills_root)
     content = p.read_text(encoding="utf-8")
-    assert "暂无 run" in content
+    assert "No runs yet" in content
 
 
 def test_render_report_single_run(tmp_path):

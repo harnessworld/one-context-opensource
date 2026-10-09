@@ -379,7 +379,7 @@ class TestClaudeCodeAdapter:
         skill_dir = adapter_root / "skills" / "demo"
         skill_dir.mkdir(parents=True, exist_ok=True)
         (skill_dir / "SKILL.md").write_text(
-            "---\nname: demo\ndescription: Demo skill. 触发词：演示、demo。\n---\nbody",
+            "---\nname: demo\ndescription: Demo skill. Invocation phrase: demo please.\n---\nbody",
             encoding="utf-8",
         )
         rules_dir = adapter_root / ".onecxt"
@@ -400,7 +400,7 @@ class TestClaudeCodeAdapter:
         assert "## What This Repository Is" not in claude_md
         assert "## Skill Routing (generated)" not in claude_md
         assert "`skills/demo/SKILL.md`" not in claude_md
-        assert "演示" not in claude_md
+        assert "Invocation phrase" not in claude_md
 
 
 class TestAgentsMd:

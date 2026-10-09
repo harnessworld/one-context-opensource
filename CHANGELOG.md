@@ -27,8 +27,11 @@ them here. No release has been published yet.
   validation, feature index closure, knowledge graph), `sync` (registry
   clones), `worktree` (per-feature git worktrees), `context export`
   (JSON/Markdown bundles with optional token-budget compression),
-  `skills` runtime install/uninstall (Claude Code, Codex), and
-  `smart-commit` (plan-gated multi-repo commit/push).
+  `skills` runtime install/uninstall (Claude Code, Codex),
+  `smart-commit` (plan-gated multi-repo commit/push), and `eval`
+  (capture/run/report skill evaluation with quick/probe/full modes;
+  the agent CLI defaults to `claude` and can be overridden with
+  `ONECXT_EVAL_AGENT_BIN`).
 - Git-hook automation via `adapt-install` (post-checkout/post-merge
   regeneration, pre-commit drift prevention for canonical sources).
 - Sample content: empty repository registry, `dev` workspace, seven

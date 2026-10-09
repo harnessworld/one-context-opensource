@@ -1,8 +1,4 @@
-"""onecxt eval {capture|run|report} — Skill 系统化评测（eval_lite）。
-
-feature: skill-systematic-eval
-设计: features/core/skill-systematic-eval/tech_design.md
-"""
+"""onecxt eval {capture|run|report} — systematic skill evaluation (eval_lite)."""
 from __future__ import annotations
 
 import argparse
@@ -12,36 +8,37 @@ from pathlib import Path
 def register(sub) -> None:
     p = sub.add_parser(
         "eval",
-        help="Skill 系统化评测：capture 建案 / run 跑评测 / report 看曲线",
+        help="Systematic skill evaluation: capture baselines / run evaluations / render reports",
     )
     sp = p.add_subparsers(dest="eval_command", required=True)
 
     # capture
-    pc = sp.add_parser("capture", help="一键建案：满意产物固化为 case baseline")
+    pc = sp.add_parser("capture", help="Create a case: freeze a satisfactory artifact as the baseline")
     pc.add_argument("--skill", required=True)
-    pc.add_argument("--from", dest="from_dir", required=True, help="满意产物目录（feature 根）")
-    pc.add_argument("--prompt", required=True, help="满意那轮的显式调用 prompt")
-    pc.add_argument("--case", default=None, help="case 名（默认 = 目录名）")
+    pc.add_argument("--from", dest="from_dir", required=True, help="satisfactory artifact directory (feature root)")
+    pc.add_argument("--prompt", required=True, help="the explicit invocation prompt from the run you liked")
+    pc.add_argument("--case", default=None, help="case name (default: directory name)")
     pc.set_defaults(func=_cmd_eval_capture)
 
     # run
-    pr = sp.add_parser("run", help="跑评测（默认 quick；--mode probe 验触发）")
+    pr = sp.add_parser("run", help="Run an evaluation (default quick; --mode probe verifies triggering)")
     pr.add_argument("target", help="<skill>/<case>")
     pr.add_argument("--mode", default="quick", choices=["quick", "probe", "full"],
-                     help="quick(秒级断言 0 token)/probe(spawn cc 验触发)/full(worktree+judge)")
+                     help="quick (local assertions, no tokens) / probe (agent spawn, trigger check) / "
+                          "full (real agent run + judge)")
     pr.add_argument("--max-turns", type=int, default=None,
-                     help="cc 截断 turn 数（probe 默认2，full 默认6）")
+                     help="agent turn cap (probe default 2, full default 6)")
     pr.set_defaults(func=_cmd_eval_run)
 
     # report
-    pre = sp.add_parser("report", help="看维度矩阵 + 版本曲线")
+    pre = sp.add_parser("report", help="Show the dimension matrix + version curve")
     pre.add_argument("target", help="<skill>/<case>")
     pre.add_argument("--format", default="markdown", choices=["markdown", "html"],
-                     help="markdown(文字) 或 html(D10 带档曲线红绿带)")
+                     help="markdown (text) or html (mode-qualified verdict band + commit curve)")
     pre.set_defaults(func=_cmd_eval_report)
 
     # list
-    pl = sp.add_parser("list", help="列出某 skill 的 case")
+    pl = sp.add_parser("list", help="List the cases of a skill")
     pl.add_argument("skill", nargs="?", default=None)
     pl.set_defaults(func=_cmd_eval_list)
 
@@ -64,18 +61,19 @@ def _cmd_eval_capture(root: Path, args: argparse.Namespace) -> int:
     print(f"  passed={r.passed} failed={r.failed} errored={r.errored}")
     print(f"  baseline: {r.baseline_path}")
     if r.gaps:
-        print(f"  ⚠ 产物缺口（未入 baseline，供 review 补产物或移除断言）：")
+        print("  ⚠ artifact gaps (not in baseline; add the artifact or drop the assertion):")
         for g in r.gaps:
             print(f"    - {g['id']} [{g.get('kind')}] dim={g.get('dimension')} "
                   f"status={g.get('status','')} : {str(g.get('detail',g.get('reason','')))[:80]}")
     if r.needs_negatives:
-        print("  ⓘ 暂无负控 prompt（D8：trigger 维度需补 negative case，run 时强制 INSUFFICIENT）")
+        print("  ⓘ no negative-control prompt yet (the trigger dimension needs a negative case; "
+              "it will be forced INSUFFICIENT at runtime)")
     return 0
 
 
 def _cmd_eval_run(root: Path, args: argparse.Namespace) -> int:
     if "/" not in args.target:
-        print("用法：onecxt eval run <skill>/<case>", flush=True)
+        print("usage: onecxt eval run <skill>/<case>", flush=True)
         return 2
     skill, case = args.target.split("/", 1)
 
@@ -95,10 +93,10 @@ def _cmd_eval_run(root: Path, args: argparse.Namespace) -> int:
             r = full_run(skill, case, skills_root=_resolve_skills_root(root), max_turns=mt)
             _print_full(skill, case, r)
         else:
-            print(f"✗ {args.mode} 档未知", flush=True)
+            print(f"✗ unknown mode: {args.mode}", flush=True)
             return 2
     except Exception as e:
-        print(f"✗ run 失败：{e}", flush=True)
+        print(f"✗ run failed: {e}", flush=True)
         return 1
     return 0
 
@@ -109,12 +107,12 @@ def _print_quick(skill: str, case: str, r) -> None:
     print(f"  verdict: {rec.verdict.verdict}")
     if rec.verdict.rationale:
         print(f"  rationale: {rec.verdict.rationale}")
-    print(f"  git_sha: {rec.git_sha or '(缺 → INSUFFICIENT_EVIDENCE)'}")
+    print(f"  git_sha: {rec.git_sha or '(missing → INSUFFICIENT_EVIDENCE)'}")
     print("  dimensions:")
     for d in rec.verdict.dimensions:
         print(f"    {d.dimension:12} role={d.role:5} verdict={d.verdict:6} {d.summary}")
     if r.deltas:
-        print("  退化明细:")
+        print("  regression details:")
         for dt in r.deltas:
             print(f"    ✗ {dt['assertion_id']} dim={dt['dimension']} "
                   f"now={dt['current_status']}")
@@ -126,19 +124,19 @@ def _print_probe(skill: str, case: str, r) -> None:
     print(f"  verdict: {rec.verdict.verdict}")
     if rec.verdict.rationale:
         print(f"  rationale: {rec.verdict.rationale}")
-    print(f"  cc_version: {rec.cc_version or '(缺 → INSUFFICIENT_EVIDENCE)'}")
-    print(f"  git_sha: {rec.git_sha or '(缺)'}")
+    print(f"  cc_version: {rec.cc_version or '(missing → INSUFFICIENT_EVIDENCE)'}")
+    print(f"  git_sha: {rec.git_sha or '(missing)'}")
     if rec.cost_usd is not None:
         print(f"  cost: ${rec.cost_usd:.4f}  duration: {rec.duration_ms}ms")
     if rec.warnings:
         print(f"  warnings: {', '.join(rec.warnings)}")
-    print("  trigger 探针:")
+    print("  trigger probes:")
     for tp in rec.trigger_probes:
         flag = "✓" if tp.get("triggered") else "✗"
-        want = "未触发(负控期望)" if tp.get("category") == "negative" else "触发(正控期望)"
-        hit = "命中" if tp.get("triggered") else "未命中"
+        want = "should not trigger (negative control)" if tp.get("category") == "negative" else "expected to trigger (positive control)"
+        hit = "triggered" if tp.get("triggered") else "not triggered"
         err = f"  err={tp['error']}" if tp.get("error") else ""
-        print(f"    {flag} [{tp.get('category'):8}] {hit}{want}{err}")
+        print(f"    {flag} [{tp.get('category'):8}] {hit} — {want}{err}")
         if tp.get("matched_raw"):
             print(f"         matched: {tp.get('matched_raw')}")
 
@@ -149,8 +147,8 @@ def _print_full(skill: str, case: str, r) -> None:
     print(f"  verdict: {rec.verdict.verdict}")
     if rec.verdict.rationale:
         print(f"  rationale: {rec.verdict.rationale}")
-    print(f"  cc_version: {rec.cc_version or '(缺 → INSUFFICIENT_EVIDENCE)'}")
-    print(f"  git_sha: {rec.git_sha or '(缺)'}")
+    print(f"  cc_version: {rec.cc_version or '(missing → INSUFFICIENT_EVIDENCE)'}")
+    print(f"  git_sha: {rec.git_sha or '(missing)'}")
     if rec.cost_usd is not None:
         print(f"  cost: ${rec.cost_usd:.4f}  duration: {rec.duration_ms}ms")
     if rec.warnings:
@@ -165,7 +163,7 @@ def _print_full(skill: str, case: str, r) -> None:
 
 def _cmd_eval_report(root: Path, args: argparse.Namespace) -> int:
     if "/" not in args.target:
-        print("用法：onecxt eval report <skill>/<case>", flush=True)
+        print("usage: onecxt eval report <skill>/<case>", flush=True)
         return 2
     skill, case = args.target.split("/", 1)
     if args.format == "html":
@@ -183,14 +181,14 @@ def _cmd_eval_list(root: Path, args: argparse.Namespace) -> int:
     if args.skill:
         d = sr / args.skill / "evals"
         if not d.is_dir():
-            print(f"无 case：{d}")
+            print(f"no cases: {d}")
             return 0
         cases = sorted(p.name for p in d.iterdir() if p.is_dir() and (p / "baseline.json").is_file())
         print(f"{args.skill}: {len(cases)} case(s)")
         for c in cases:
             print(f"  - {c}")
         return 0
-    # 列所有 skill
+    # List all skills.
     print("Skill cases:")
     if not sr.is_dir():
         return 0

@@ -20,7 +20,7 @@ from one_context.eval_lite.trace import NoAuthError
 
 _FULL_DIMS_YAML = """\
 outcome:
-  why_it_matters: "产物完整"
+  why_it_matters: "artifacts are complete"
   role: gate
   modes_ok: [quick, full]
   assertions:
@@ -31,12 +31,12 @@ outcome:
       kind: file_exists
       path: "00-structure.md"
 process:
-  why_it_matters: "工具链步骤"
+  why_it_matters: "toolchain steps"
   role: score
   modes_ok: [full]
   threshold: 0.8
 style:
-  why_it_matters: "风格一致"
+  why_it_matters: "style consistency"
   role: gate
   modes_ok: [quick, full]
   assertions:
@@ -45,21 +45,21 @@ style:
       path: "flip-checklist.md"
       blocking: false
 efficiency:
-  why_it_matters: "效率达标"
+  why_it_matters: "efficiency is acceptable"
   role: score
   modes_ok: [quick, full]
   threshold: 0.9
   tolerance: 0.2
 surface:
-  why_it_matters: "维护面稳定"
+  why_it_matters: "maintenance surface stays stable"
   role: gate
   modes_ok: [quick, full]
 trigger:
-  why_it_matters: "触发正确"
+  why_it_matters: "triggering is correct"
   role: gate
   modes_ok: [probe, full]
 extension:
-  why_it_matters: "扩展检查"
+  why_it_matters: "extension checks"
   role: gate
   modes_ok: [quick, full]
 """
@@ -341,7 +341,7 @@ def test_trace_summary_basic():
 
 def test_trace_summary_empty():
     s = _trace_summary_for_judge("", "anything")
-    assert "无工具调用" in s
+    assert "(no tool calls)" in s
 
 
 # --- _new_run_id (portable + unique-same-second regression) ---

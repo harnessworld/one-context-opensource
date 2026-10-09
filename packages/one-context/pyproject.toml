@@ -43,7 +43,7 @@ onecxt = "one_context.cli:main"
 testpaths = ["tests"]
 addopts = "-m 'not slow'"
 markers = [
-  "slow: 真接 LLM 的端到端测试，默认 skip；本地 `pytest -m slow` 才跑（消耗 token）",
+  "slow: end-to-end tests that call real LLMs; excluded by default, run locally with `pytest -m slow` (consumes tokens)",
 ]
 
 [tool.setuptools.packages.find]

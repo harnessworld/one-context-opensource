@@ -39,7 +39,7 @@ _ADAPTER_NAME = "opencode"
 # explicit ``status: unsupported`` rather than silent skips (spec AC7).
 _UNSUPPORTED_KINDS_BY_OPENCODE: tuple[tuple[str, str, str], ...] = (
     # (source_kind, why_skipped, where_user_would_define_it)
-    ("command", "onecxt 不分发 commands — 见 spec 非目标", "用户在 .opencode/commands/ 自行定义"),
+    ("command", "onecxt does not distribute commands — out of scope by design", "Users define their own in .opencode/commands/"),
 )
 # NOTE: `rule` is deliberately NOT listed — rules are distributed uniformly
 # across all adapters: `.onecxt/RULES.md` is inlined into every startup

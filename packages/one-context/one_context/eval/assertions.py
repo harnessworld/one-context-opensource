@@ -67,8 +67,8 @@ KIND_LITERAL = Literal[
     "json_field",
     "count_compare",
     "regex_count",
-    "tool_call_count",  # ISS-024 / Stage 2.7.J: verify session inject didn't leak
-    "cross_file_consistency",  # M5: F-06 推荐 URL 在 03 里
+    "tool_call_count",
+    "cross_file_consistency",  # e.g. a URL referenced in file A must also appear in file B
 ]
 SOURCE_LITERAL = Literal["file", "stdout", "final_text", "stderr_tail"]
 JSON_OP_LITERAL = Literal[
@@ -193,11 +193,11 @@ class AssertionSpec(BaseModel):
     # compatible — when omitted, tool_call_count behaviour is unchanged.
     tool_input_match: ToolInputMatchSpec | None = None
 
-    # R-7 治理 (design §16.7.8): by default tool_call_count excludes
+    # By default tool_call_count excludes
     # tool_use events whose paired tool_result was `is_error=True`
-    # (cc-attempted-but-denied, e.g. `--disallowedTools` deny). Set
-    # `count_errored_calls: true` to revert to pre-R-7 behaviour (count
-    # every attempt). Pre-R-7 scenarios are unaffected because the
+    # (agent-attempted-but-denied, e.g. `--disallowedTools` deny). Set
+    # `count_errored_calls: true` to count every attempt instead. Older
+    # scenarios are unaffected because the
     # provider always emits `is_error: false` on successful calls and
     # the bit only matters when the assertion is a P3-style 0-count.
     count_errored_calls: bool = False
@@ -618,20 +618,20 @@ def _h_tool_call_count(spec: AssertionSpec, ctx: AssertionContext) -> tuple[str,
     did not "escape" the forged history and invoke the real tool. Also
     useful for budget checks ("MUST call WebFetch at most 5 times").
 
-    M5 — `tool_input_match` (optional): further filter calls by an
-    input-field predicate (F-07 / F-10). When set, only invocations of
+    R-7 — `tool_input_match` (optional): further filter calls by an
+    input-field predicate. When set, only invocations of
     `tool_name` whose `input[field]` passes the predicate count toward
     the total. See ToolInputMatchSpec docstring for op semantics. When
     omitted, behaviour is unchanged (backward compatible).
 
-    R-7 治理 (design §16.7.8): by default tool_use events whose paired
+    Denied calls: by default tool_use events whose paired
     tool_result is `is_error=True` are EXCLUDED from the count. These
-    are cc-attempted-but-denied calls (e.g. --disallowedTools deny:
+    are agent-attempted-but-denied calls (e.g. --disallowedTools deny:
     `tool_use_error: Bash is not enabled in this context`) — the call
     never produced a real-world side effect, so counting them as
-    "escape" gives false positives on P3 double-insurance. Pass
-    `count_errored_calls: true` in the assertion spec to revert to the
-    pre-R-7 behaviour (count all attempts including denied ones).
+    "escape" gives false positives on redundant-safety scenarios. Pass
+    `count_errored_calls: true` in the assertion spec to count all
+    attempts including denied ones.
     """
     if not spec.tool_name:
         raise ValueError("tool_call_count: `tool_name` required")

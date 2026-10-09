@@ -124,6 +124,24 @@ flowchart LR
 [`docs/architecture.md`](docs/architecture.md)，主要清单字段见
 [`docs/configuration.md`](docs/configuration.md)。
 
+## 技能评测（实验性）
+
+`onecxt eval` 用"已冻结的满意产物基线"对技能做回归测试。三档评测按
+深度递增：`quick`（本地断言，零 token）、`probe`（spawn 智能体 CLI
+验证技能确实被触发）、`full`（真实跑一遍 + LLM 裁判主观维度）。
+
+```bash
+# 把满意产物固化为基线
+onecxt eval capture --skill my-skill --from features/cat/my-feature --prompt "..."
+
+onecxt eval run my-skill/my-case                # quick（默认）
+onecxt eval run my-skill/my-case --mode probe   # 触发验证
+onecxt eval report my-skill/my-case --format html
+```
+
+智能体 CLI 默认 `claude`，可用 `ONECXT_EVAL_AGENT_BIN` 覆盖。probe/full
+需要 Anthropic 凭证，缺凭证时降级为 `INSUFFICIENT_EVIDENCE`；quick 完全本地。
+
 ## 仓库布局
 
 | 路径 | 内容 | 归属 |
@@ -173,7 +191,8 @@ flowchart LR
   Python 3.10），执行包测试、`onecxt doctor`、`onecxt adapt dev` 与
   `adapt --check`；最新运行结果见上方徽章。
 - 核心工作区操作在本地运行；仓库同步访问 Git 远端，可选的技能评测
-  会调用你配置的模型服务。
+  （`onecxt eval`）会调用智能体 CLI（默认 `claude`，可用
+  `ONECXT_EVAL_AGENT_BIN` 覆盖）与模型服务。
 
 ## 许可证
 

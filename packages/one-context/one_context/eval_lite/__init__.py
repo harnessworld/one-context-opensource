@@ -1,11 +1,12 @@
-"""eval_lite — Skill 系统化评测（轻壳重核）。
+"""eval_lite — systematic skill evaluation (thin shell, strict core).
 
-feature: features/core/skill-systematic-eval
-design: features/core/skill-systematic-eval/tech_design.md (D2)
+Three run modes: quick (no agent spawn) / probe (verify skill triggering via
+stream-json trace) / full (real agent run + LLM judge).
+Three verdicts: PASS / FAIL / INSUFFICIENT_EVIDENCE.
 
-三档 run: quick(无 cc) / probe(stream-json 验触发) / full(worktree+judge)。
-verdict 三态: PASS / FAIL / INSUFFICIENT_EVIDENCE。
-满意度即标准 baseline（无 sign-off）；重核靠 D6 聚合闭环 + D8 触发档 + D9 五原则 gate。
+A captured "satisfactory artifact" becomes the baseline; regressions are
+measured against it. The core is protected by dimension aggregation, a
+mandatory trigger dimension, and a rule-before-judge gate.
 """
 
 __all__ = ["schema", "dimensions", "assertion_map"]

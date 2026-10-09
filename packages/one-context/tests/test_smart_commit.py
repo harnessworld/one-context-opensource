@@ -84,7 +84,7 @@ class TestPorcelainParser:
         payload = b"".join(
             (
                 b"? docs/a file.md\0",
-                "? 文档/说明.md\0".encode(),
+                "? übersicht/hinweis.md\0".encode(),
                 b"1 .M N... 100644 100644 100644 abc def tracked.txt\0",
                 b"2 R. N... 100644 100644 100644 abc def R100 new name.txt\0old name.txt\0",
             )
@@ -92,7 +92,7 @@ class TestPorcelainParser:
         changes = parse_porcelain_v2(payload)
         assert [change.path for change in changes] == [
             "docs/a file.md",
-            "文档/说明.md",
+            "übersicht/hinweis.md",
             "tracked.txt",
             "new name.txt",
         ]
@@ -166,7 +166,7 @@ class TestClassification:
         item = classify_change(
             repo,
             Change(
-                "content-pipeline/demo-video/production/cover-prompt.md",
+                "media/demo-video/production/cover-prompt.md",
                 "?",
                 "??",
                 False,
@@ -179,7 +179,7 @@ class TestClassification:
         repo = RepoState("features", tmp_path, "features", False)
         item = classify_change(
             repo,
-            Change("content-pipeline/demo-video/remotion/lib/timeline.js", "?", "??", False),
+            Change("media/demo-video/remotion/lib/timeline.js", "?", "??", False),
             set(),
         )
         assert item.mark == "OK"
@@ -189,7 +189,7 @@ class TestClassification:
         item = classify_change(
             repo,
             Change(
-                "content-pipeline/demo-video/remotion/public/fonts/demo/demo.woff2",
+                "media/demo-video/remotion/public/fonts/demo/demo.woff2",
                 "?",
                 "??",
                 False,
@@ -211,7 +211,7 @@ class TestClassification:
         repo = RepoState("features", tmp_path, "features", False)
         item = classify_change(
             repo,
-            Change("teachback/demo/archive/remotion/src/Root.tsx", "?", "??", False),
+            Change("tutorial/demo/archive/remotion/src/Root.tsx", "?", "??", False),
             set(),
         )
         assert item.mark == "OK"
@@ -219,19 +219,19 @@ class TestClassification:
     def test_feature_episodes_skeleton_is_canonical(self, tmp_path: Path):
         repo = RepoState("features", tmp_path, "features", False)
         ok_paths = {
-            "teachback/demo/production/episodes/01-overview/content/00-structure.md",
-            "teachback/demo/production/episodes/01-overview/timing/plan.json",
-            "teachback/demo/production/episodes/01-overview/learning/feynman-review.json",
-            "teachback/demo/production/episodes/01-overview/slides/deck-plan.md",
-            "teachback/demo/production/episodes/02-deepdive/recorder/notes.md",
+            "tutorial/demo/production/episodes/01-overview/content/00-structure.md",
+            "tutorial/demo/production/episodes/01-overview/timing/plan.json",
+            "tutorial/demo/production/episodes/01-overview/learning/feynman-review.json",
+            "tutorial/demo/production/episodes/01-overview/slides/deck-plan.md",
+            "tutorial/demo/production/episodes/02-deepdive/recorder/notes.md",
         }
         ask_paths = {
-            "teachback/demo/production/episodes/01-overview/README.md",
-            "teachback/demo/production/episodes/01-slides/deck-plan.md",
+            "tutorial/demo/production/episodes/01-overview/README.md",
+            "tutorial/demo/production/episodes/01-slides/deck-plan.md",
         }
         skip_paths = {
-            "teachback/demo/production/episodes/01-overview/stills/overview-k01.png",
-            "teachback/demo/production/episodes/01-overview/videos/overview-deck-preview.mp4",
+            "tutorial/demo/production/episodes/01-overview/stills/overview-k01.png",
+            "tutorial/demo/production/episodes/01-overview/videos/overview-deck-preview.mp4",
         }
         for path in ok_paths:
             item = classify_change(repo, Change(path, "?", "??", False), set())
@@ -249,10 +249,10 @@ class TestClassification:
     ):
         repo = RepoState("features", tmp_path, "features", False)
         expectations = {
-            "content-pipeline/demo-video/remotion/public/metadata.json": "ASK",
-            "content-pipeline/demo-video/production/notes.md": "ASK",
-            "content-pipeline/demo-video/remotion/public/fonts/preview.png": "SKIP",
-            "content-pipeline/demo-video/production/cover.png": "SKIP",
+            "media/demo-video/remotion/public/metadata.json": "ASK",
+            "media/demo-video/production/notes.md": "ASK",
+            "media/demo-video/remotion/public/fonts/preview.png": "SKIP",
+            "media/demo-video/production/cover.png": "SKIP",
         }
 
         for path, expected_mark in expectations.items():

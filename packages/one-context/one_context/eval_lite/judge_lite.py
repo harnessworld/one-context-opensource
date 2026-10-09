@@ -1,19 +1,27 @@
-"""judge_lite — full 档 LLM 裁判（D9 原则4 + D9.2 锁 JSON rubric）。
+"""judge_lite — LLM judge for the full run mode.
 
-D9 原则4：规则不够时再让模型补。judge 只接规则覆盖不了的（过程/风格主观维度），
-不可反过来先 judge（D9.4 full 顺序 quick→probe→judge）。
-D9.2：judge rubric 必须可执行判定，锁 JSON schema
-      {dimension, score(0-1), evidence, rationale, verdict}，
-      模糊描述 rubric 拒绝加载。
+Rules first, judge second: the judge only covers dimensions that rules
+cannot (subjective process/style aspects), and the full mode runs
+quick → probe → judge in that order.
 
-spawn claude -p + 强制 JSON 输出。judge 失败（无合法 JSON）→ 维度 INSUFFICIENT_EVIDENCE。
+The judge rubric must be executable: the output schema is locked to
+{dimension, score(0-1), evidence, rationale, verdict} and vague rubrics are
+rejected at load time.
+
+The judge is spawned via the agent CLI (override the binary with the
+ONECXT_EVAL_AGENT_BIN environment variable) and forced to emit a single JSON
+object. Any judge failure (no valid JSON) degrades the dimension to
+INSUFFICIENT_EVIDENCE at the aggregation layer.
 """
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from typing import Any
+
+from one_context.eval_lite.trace import agent_bin
 
 
 JUDGE_SCHEMA_KEYS = {"dimension", "score", "evidence", "rationale", "verdict"}
@@ -26,32 +34,33 @@ class JudgeError(ValueError):
 
 @dataclass
 class JudgeResult:
-    """judge 对一个主观维度的判定。"""
+    """A judge verdict for one subjective dimension."""
 
     dimension: str
     score: float           # 0..1
-    evidence: str          # trace/产物里支撑判定的具体证据
-    rationale: str         # 为什么这个分/verdict
-    verdict: str           # PASS / FAIL（score >= threshold ? PASS : FAIL，由调用方定阈）
-    error: str = ""        # spawn/解析失败原因
+    evidence: str          # concrete evidence from the trace/artifacts supporting the verdict
+    rationale: str         # why this score/verdict
+    verdict: str           # PASS / FAIL (score >= threshold → PASS; caller sets the threshold)
+    error: str = ""        # spawn/parse failure reason
 
 
 def _judge_prompt(dimension: str, rubric: str, context_text: str) -> str:
-    return f"""你是 Skill 评测裁判。只评【{dimension}】维度。
+    return f"""You are a skill-evaluation judge. Evaluate ONLY the [{dimension}] dimension.
 
-判定标准（必须可执行，模糊则判 FAIL）：
+Grading rubric (must be executable; grade FAIL if it is ambiguous):
 {rubric}
 
-证据上下文（cc 跑 skill 的 trace 摘要 + 产物）：
+Evidence context (trace summary of the agent run + artifacts):
 ---
 {context_text}
 ---
 
-严格只输出一个 JSON 对象，不要 markdown 代码块、不要解释：
-{{"dimension": "{dimension}", "score": <0到1的浮点>, "evidence": "<trace/产物里具体证据>",
-  "rationale": "<为什么这个分>", "verdict": "PASS或FAIL"}}
+Output exactly one JSON object — no markdown fences, no explanation:
+{{"dimension": "{dimension}", "score": <float 0..1>, "evidence": "<concrete evidence from the trace/artifacts>",
+  "rationale": "<why this score>", "verdict": "PASS or FAIL"}}
 
-score 映射：完全合规=1.0，轻微偏差=0.7-0.9，明显违规<0.6。verdict 由你是否认为该维度合格决定。"""
+Score mapping: fully compliant = 1.0, minor deviation = 0.7-0.9, clear violation < 0.6.
+The verdict reflects whether you consider this dimension passing."""
 
 
 def judge_dimension(
@@ -64,29 +73,31 @@ def judge_dimension(
     timeout: int = 120,
     model: str | None = None,
 ) -> JudgeResult:
-    """spawn claude -p 评一个主观维度。锁 JSON schema（parse 失败返回 error）。
+    """Spawn the agent CLI to judge one subjective dimension.
 
-    rubric 空或不可执行 → JudgeError（调用方应在加载时拒绝，D9.2）。
+    The output schema is locked (parse failures return a JudgeResult with a
+    non-empty error). An empty or non-executable rubric raises JudgeError
+    (callers should reject such rubrics at load time).
     """
     if not rubric or not rubric.strip():
-        raise JudgeError(f"维度 {dimension} 缺 judge_rubric（D9.2：模糊描述拒绝加载）")
+        raise JudgeError(f"dimension {dimension} is missing judge_rubric (vague rubrics are rejected)")
     if len(rubric.strip()) < 10:
-        raise JudgeError(f"维度 {dimension} judge_rubric 过短，不可执行判定（D9.2）")
+        raise JudgeError(f"dimension {dimension} judge_rubric is too short to be an executable decision")
 
     prompt = _judge_prompt(dimension, rubric, context_text)
-    cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--max-turns", "1"]
+    cmd = [agent_bin(), "-p", prompt, "--output-format", "stream-json", "--verbose", "--max-turns", "1"]
     if model:
         cmd += ["--model", model]
     try:
         r = subprocess.run(cmd, cwd=workdir, env=env,
                            capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return JudgeResult(dimension, 0.0, "", "", "FAIL", error="judge 超时")
+        return JudgeResult(dimension, 0.0, "", "", "FAIL", error=f"judge timed out after {timeout}s")
     if r.returncode != 0 and not r.stdout:
         return JudgeResult(dimension, 0.0, "", "", "FAIL",
-                           error=f"claude exit={r.returncode}: {r.stderr[:200]}")
+                           error=f"{agent_bin()} exit={r.returncode}: {r.stderr[:200]}")
 
-    # 从 stream-json 末行 result.result 抠 JSON 文本
+    # Extract the JSON text from the trailing result event of the stream-json output.
     result_text = ""
     for line in r.stdout.splitlines():
         line = line.strip()
@@ -102,10 +113,13 @@ def judge_dimension(
 
 
 def _parse_judge_json(dimension: str, text: str) -> JudgeResult:
-    """从 cc 输出文本抠 JSON 对象，锁 schema。容错剥离 markdown 围栏。"""
+    """Extract the JSON object from the judge output, enforcing the schema.
+
+    Markdown fences are stripped defensively.
+    """
     if not text:
-        return JudgeResult(dimension, 0.0, "", "", "FAIL", error="judge 无输出")
-    # 剥 ```json ... ``` 围栏（cc 偶尔不听话加围栏）
+        return JudgeResult(dimension, 0.0, "", "", "FAIL", error="judge produced no output")
+    # Strip ```json ... ``` fences (models occasionally add them).
     stripped = text.strip()
     if stripped.startswith("```"):
         lines = stripped.splitlines()
@@ -114,24 +128,24 @@ def _parse_judge_json(dimension: str, text: str) -> JudgeResult:
         if lines and lines[-1].startswith("```"):
             lines = lines[:-1]
         stripped = "\n".join(lines).strip()
-    # 抠第一个 {...} 块
+    # Extract the first {...} block.
     start = stripped.find("{")
     end = stripped.rfind("}")
     if start == -1 or end == -1 or end < start:
-        return JudgeResult(dimension, 0.0, "", "", "FAIL", error=f"judge 输出非 JSON: {stripped[:120]}")
+        return JudgeResult(dimension, 0.0, "", "", "FAIL", error=f"judge output is not JSON: {stripped[:120]}")
     try:
         obj = json.loads(stripped[start:end + 1])
     except Exception as e:
-        return JudgeResult(dimension, 0.0, "", "", "FAIL", error=f"judge JSON 解析失败: {e}")
+        return JudgeResult(dimension, 0.0, "", "", "FAIL", error=f"judge JSON failed to parse: {e}")
 
     missing = JUDGE_SCHEMA_KEYS - set(obj.keys())
     if missing:
         return JudgeResult(dimension, 0.0, "", "", "FAIL",
-                           error=f"judge JSON 缺字段 {missing}")
+                           error=f"judge JSON is missing fields {missing}")
     verdict = str(obj["verdict"]).strip().upper()
     if verdict not in VALID_VERDICTS:
         return JudgeResult(dimension, 0.0, "", "", "FAIL",
-                           error=f"judge verdict 非法: {verdict}")
+                           error=f"judge verdict is invalid: {verdict}")
     try:
         score = float(obj["score"])
     except (TypeError, ValueError):
@@ -147,6 +161,6 @@ def _parse_judge_json(dimension: str, text: str) -> JudgeResult:
 
 
 def judge_verdict_from_score(score: float, threshold: float | None) -> str:
-    """score → verdict：score >= threshold ? PASS : FAIL。threshold 缺省 0.8。"""
+    """score → verdict: PASS if score >= threshold else FAIL. Default threshold 0.8."""
     th = threshold if threshold is not None else 0.8
     return "PASS" if score >= th else "FAIL"

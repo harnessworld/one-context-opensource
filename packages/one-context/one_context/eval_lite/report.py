@@ -1,11 +1,13 @@
-"""report — 维度矩阵 + 版本曲线。
+"""report — dimension matrix + version curve.
 
-两版：
-- render_report (markdown)：文字摘要，各 run verdict + 维度 + 退化明细。
-- render_html_report (HTML, D10)：带档 verdict 红绿带 + commit 横轴曲线 +
-  三字形 quick/probe/full 虚实线 + 系统态/警告旗二级徽章。
+Two renderers:
+- render_report (markdown): text summary — per-run verdicts, dimensions,
+  and regression details.
+- render_html_report (HTML): mode-qualified verdict band + commit-axis
+  curve + quick/probe/full glyphs + system-state/warning badges.
 
-HTML 用纯 f-string + 内联 CSS + 原生 <details> 折叠（零 JS、零依赖）。
+The HTML renderer is pure f-strings + inline CSS + native <details>
+folding (zero JavaScript, zero dependencies).
 """
 from __future__ import annotations
 
@@ -26,7 +28,7 @@ def _collect_runs(case_dir: Path) -> list[dict[str, Any]]:
             out.append(json.loads(f.read_text(encoding="utf-8")))
         except Exception:
             continue
-    # 按时间正序（runId 时间戳前缀）
+    # Chronological order (run id has a timestamp prefix).
     out.sort(key=lambda r: r.get("run_id", ""))
     return out
 
@@ -34,47 +36,47 @@ def _collect_runs(case_dir: Path) -> list[dict[str, Any]]:
 def render_report(skill: str, case: str, *, skills_root: Path) -> Path:
     case_dir = skills_root / skill / "evals" / case
     if not case_dir.is_dir():
-        raise FileNotFoundError(f"case 不存在：{case_dir}")
+        raise FileNotFoundError(f"case does not exist: {case_dir}")
 
     runs = _collect_runs(case_dir)
     out_path = case_dir / "report.md"
 
     lines: list[str] = []
-    lines.append(f"# {skill}/{case} 评测报告\n")
+    lines.append(f"# {skill}/{case} evaluation report\n")
     if not runs:
-        lines.append("（暂无 run 记录。先 `onecxt eval run <skill>/<case>` 跑一次。）\n")
+        lines.append("No runs yet. Run `onecxt eval run <skill>/<case>` first.\n")
         out_path.write_text("\n".join(lines), encoding="utf-8")
         return out_path
 
-    # D6③ 顶层 skill@sha 结论（最新 run）
+    # Top-level skill@sha conclusion (latest run).
     latest = runs[-1]
-    lines.append(f"**最新 verdict**：`{latest['verdict']['verdict']}` "
+    lines.append(f"**Latest verdict**: `{latest['verdict']['verdict']}` "
                  f"@ `{latest.get('git_sha','')[:8]}` mode=`{latest.get('mode')}`\n")
     if latest["verdict"].get("rationale"):
         lines.append(f"> {latest['verdict']['rationale']}\n")
 
-    # 维度矩阵（最新 run）
-    lines.append("## 维度矩阵（最新）\n")
-    lines.append("| 维度 | role | verdict | 明细 |")
+    # Dimension matrix (latest run).
+    lines.append("## Dimension matrix (latest)\n")
+    lines.append("| dimension | role | verdict | detail |")
     lines.append("|---|---|---|---|")
     for d in latest["verdict"].get("dimensions", []):
         lines.append(f"| {d['dimension']} | {d['role']} | {d['verdict']} | {d.get('summary','')} |")
     lines.append("")
 
-    # 版本曲线（runId 折叠，D10 横轴=commit，首版文字时间轴）
-    lines.append("## 版本历史\n")
+    # Version history (run ids collapsible; commit axis, text timeline).
+    lines.append("## Version history\n")
     lines.append("| run_id | mode | git_sha | verdict | rationale |")
     lines.append("|---|---|---|---|---|")
     for r in runs:
-        sha = (r.get("git_sha") or "")[:8] or "(缺)"
+        sha = (r.get("git_sha") or "")[:8] or "(missing)"
         lines.append(f"| {r.get('run_id','')} | {r.get('mode','')} | `{sha}` | "
                      f"{r['verdict']['verdict']} | {r['verdict'].get('rationale','')} |")
     lines.append("")
 
-    # 警告旗（D8/D9.5 二级徽章，首版文字）
+    # Warning badges.
     warn_runs = [r for r in runs if r.get("warnings")]
     if warn_runs:
-        lines.append("## 警告旗\n")
+        lines.append("## Warnings\n")
         for r in warn_runs:
             lines.append(f"- `{r.get('run_id','')}`: {', '.join(r['warnings'])}")
         lines.append("")
@@ -83,7 +85,7 @@ def render_report(skill: str, case: str, *, skills_root: Path) -> Path:
     return out_path
 
 
-# --- D10 HTML 带档曲线 ---
+# --- HTML mode-qualified curve ---
 
 _MODE_RANK = {"full": 3, "probe": 2, "quick": 1}
 _MODE_GLYPH = {"quick": "●", "probe": "△", "full": "◆"}
@@ -92,11 +94,11 @@ _VERDICT_COLOR = {
     "FAIL": "#c0392b",
     "INSUFFICIENT_EVIDENCE": "#8a8f98",
 }
-_WINDOW = 20  # D10：横轴窗口最近 ~20 commit
+_WINDOW = 20  # horizontal axis window: roughly the last 20 commits
 
 
 def _collect_commits(repo_root: Path, n: int = _WINDOW) -> list[dict[str, str]]:
-    """git log 拿最近 n commit：[{sha, short, msg}]，新→旧。best-effort。"""
+    """git log for the last n commits: [{sha, short, msg}], newest first. Best-effort."""
     try:
         r = subprocess.run(
             ["git", "log", f"-{n}", "--pretty=format:%H|%s"],
@@ -117,10 +119,11 @@ def _collect_commits(repo_root: Path, n: int = _WINDOW) -> list[dict[str, str]]:
 
 def _aggregate_curve(runs: list[dict[str, Any]],
                      commits: list[dict[str, str]]) -> list[dict[str, Any]]:
-    """run 列表 × commit 窗口 → 每 commit 的带档判定（D6③ + D10）。
+    """runs × commit window → one mode-qualified verdict per commit.
 
-    每 commit：跑过的档取最高档(full>probe>quick) run 的 verdict 作带档 verdict；
-    未跑 → None（未评测，灰）。三字形标记哪些档跑过。
+    Per commit: among the modes that ran, the highest-mode (full > probe >
+    quick) latest run provides the mode-qualified verdict; commits with no
+    runs get None (not evaluated, grey). The glyphs mark which modes ran.
     """
     by_sha: dict[str, list[dict[str, Any]]] = {}
     for run in runs:
@@ -131,7 +134,7 @@ def _aggregate_curve(runs: list[dict[str, Any]],
     curve = []
     for c in commits:
         sha_runs = by_sha.get(c["sha"], [])
-        # 同 sha 多 run 每 mode 取最新（run_id 时间戳排序）
+        # Multiple runs on the same sha: keep the latest run per mode (run-id order).
         latest_per_mode: dict[str, dict[str, Any]] = {}
         for run in sorted(sha_runs, key=lambda r: r.get("run_id", "")):
             latest_per_mode[run.get("mode", "quick")] = run
@@ -140,7 +143,7 @@ def _aggregate_curve(runs: list[dict[str, Any]],
             curve.append({**c, "modes": [], "best_mode": None,
                           "verdict": None, "has_full": False})
             continue
-        best_mode = modes_run[-1]  # 最高档
+        best_mode = modes_run[-1]  # highest mode
         best_run = latest_per_mode[best_mode]
         curve.append({
             **c, "modes": modes_run, "best_mode": best_mode,
@@ -152,7 +155,8 @@ def _aggregate_curve(runs: list[dict[str, Any]],
 
 
 def _rollup_verdict(runs: list[dict[str, Any]]) -> tuple[str | None, str | None]:
-    """D6③ skill@sha 顶层：取最新 run 的 verdict + best_mode（首屏发车信号）。"""
+    """Top-level skill@sha rollup: latest run's verdict + best mode (the
+    first-screen ship signal)."""
     if not runs:
         return None, None
     latest = max(runs, key=lambda r: r.get("run_id", ""))
@@ -162,19 +166,20 @@ def _rollup_verdict(runs: list[dict[str, Any]]) -> tuple[str | None, str | None]
 
 
 def render_html_report(skill: str, case: str, *, skills_root: Path) -> Path:
-    """D10 HTML 报告：带档 verdict 首屏 + commit 红绿带 + 三字形虚实线。"""
+    """HTML report: mode-qualified verdict front page + commit red/green band
+    + mode glyphs."""
     case_dir = skills_root / skill / "evals" / case
     if not case_dir.is_dir():
-        raise FileNotFoundError(f"case 不存在：{case_dir}")
+        raise FileNotFoundError(f"case does not exist: {case_dir}")
     runs = _collect_runs(case_dir)
     repo_root = skills_root.resolve().parent
     commits = _collect_commits(repo_root)
     curve = _aggregate_curve(runs, commits)
 
     top_v, top_m = _rollup_verdict(runs)
-    banded = f"{top_v}@{top_m}" if top_v and top_m and top_v == "PASS" else (top_v or "未评测")
+    banded = f"{top_v}@{top_m}" if top_v and top_m and top_v == "PASS" else (top_v or "not evaluated")
 
-    # 系统态 + 警告旗二级徽章计数
+    # System-state + warning badge counts.
     sys_count = sum(1 for r in runs if r.get("verdict", {}).get("verdict") == "INSUFFICIENT_EVIDENCE")
     warn_items: list[tuple[str, str]] = []
     for r in runs:
@@ -183,12 +188,12 @@ def render_html_report(skill: str, case: str, *, skills_root: Path) -> Path:
 
     def _cell(c: dict[str, Any]) -> str:
         v = c.get("verdict")
-        color = _VERDICT_COLOR.get(v, "#d5dbe1") if v else "#eef1f4"  # 未评测 浅灰
+        color = _VERDICT_COLOR.get(v, "#d5dbe1") if v else "#eef1f4"  # not evaluated: light grey
         glyphs = "".join(
             f'<span class="glyph {m}{"" if c.get("has_full") or m=="full" else " soft"}">{_MODE_GLYPH[m]}</span>'
             for m in c.get("modes", [])
         )
-        border = "solid" if c.get("has_full") else "dashed"  # quick/probe-only 段虚线
+        border = "solid" if c.get("has_full") else "dashed"  # quick/probe-only segments are dashed
         title = f"{c['short']} {c['msg']} | modes={c.get('modes')} verdict={v}"
         return (f'<td class="cell {border}" style="background:{color}" title="{html.escape(title)}">'
                 f'<div class="glyphs">{glyphs}</div></td>')
@@ -199,12 +204,12 @@ def render_html_report(skill: str, case: str, *, skills_root: Path) -> Path:
         for c in curve
     )
 
-    # 失败/系统态 commit 维度明细（折叠）
+    # Failed/system-state runs: per-dimension details (collapsible).
     detail_rows = ""
     detail_runs = [r for r in runs if r.get("verdict", {}).get("verdict") in ("FAIL", "INSUFFICIENT_EVIDENCE")]
     if detail_runs:
         for r in detail_runs:
-            sha = (r.get("git_sha") or "")[:8] or "(缺)"
+            sha = (r.get("git_sha") or "")[:8] or "(missing)"
             dims = " · ".join(
                 f"{d['dimension']}={d['verdict']}"
                 for d in r.get("verdict", {}).get("dimensions", [])
@@ -215,9 +220,9 @@ def render_html_report(skill: str, case: str, *, skills_root: Path) -> Path:
 
     badge_color = _VERDICT_COLOR.get(top_v, "#8a8f98")
     page = f"""<!doctype html>
-<html lang="zh"><head><meta charset="utf-8"><title>{html.escape(skill)}/{html.escape(case)} 评测</title>
+<html lang="en"><head><meta charset="utf-8"><title>{html.escape(skill)}/{html.escape(case)} evaluation</title>
 <style>
-  body {{ font: 14px/1.5 -apple-system, "PingFang SC", sans-serif; margin: 24px; color: #1f2328; }}
+  body {{ font: 14px/1.5 -apple-system, sans-serif; margin: 24px; color: #1f2328; }}
   h1 {{ font-size: 18px; margin: 0 0 4px; }}
   .top {{ display:flex; align-items:baseline; gap:12px; margin-bottom:16px; }}
   .badge {{ padding:2px 10px; border-radius:4px; color:#fff; font-weight:600; font-size:15px; background:{badge_color}; }}
@@ -239,7 +244,7 @@ def render_html_report(skill: str, case: str, *, skills_root: Path) -> Path:
 <h1>{html.escape(skill)} / {html.escape(case)}</h1>
 <div class="top">skill@<code>{(commits[0]['short'] if commits else '?')}</code>
   <span class="badge">{html.escape(banded)}</span></div>
-<div class="badges">系统态 {sys_count} · 警告 {len(warn_items)}
+<div class="badges">system-state {sys_count} · warnings {len(warn_items)}
 {(''.join(f'<br>· {rid}: {html.escape(w)}' for rid,w in warn_items) if warn_items else '')}</div>
 
 <table class="curve"><tr>{cells}</tr>
@@ -247,15 +252,15 @@ def render_html_report(skill: str, case: str, *, skills_root: Path) -> Path:
 
 <div class="legend">
   <span class="glyph quick">●</span>quick <span class="glyph probe">△</span>probe <span class="glyph full">◆</span>full
-  · 虚线框=仅规格/触发覆盖（未 full 验）· 实线框=有 full 点
-  · 绿=PASS 红=FAIL 灰=INSUFFICIENT 浅灰=未评测
+  · dashed border = spec/trigger coverage only (no full run) · solid border = has a full run
+  · green = PASS, red = FAIL, grey = INSUFFICIENT, light grey = not evaluated
 </div>
 
-{f'<details open><summary>失败/系统态 run 维度明细（{len(detail_runs)}）</summary><table class="detail"><tr><th>mode</th><th>sha</th><th>verdict</th><th>rationale</th></tr>{detail_rows}</table></details>' if detail_runs else ''}
+{f'<details open><summary>Failed/system-state run details ({len(detail_runs)})</summary><table class="detail"><tr><th>mode</th><th>sha</th><th>verdict</th><th>rationale</th></tr>{detail_rows}</table></details>' if detail_runs else ''}
 
-<details><summary>全部 run 历史（{len(runs)}）</summary>
+<details><summary>All run history ({len(runs)})</summary>
 <table class="detail"><tr><th>run_id</th><th>mode</th><th>sha</th><th>verdict</th></tr>
-{"".join(f'<tr><td>{r.get("run_id","")}</td><td>{r.get("mode","")}</td><td><code>{(r.get("git_sha","")[:8]) or "(缺)"}</code></td><td>{r.get("verdict",{}).get("verdict","")}</td></tr>' for r in runs)}
+{"".join(f'<tr><td>{r.get("run_id","")}</td><td>{r.get("mode","")}</td><td><code>{(r.get("git_sha","")[:8]) or "(missing)"}</code></td><td>{r.get("verdict",{}).get("verdict","")}</td></tr>' for r in runs)}
 </table></details>
 </body></html>"""
 
