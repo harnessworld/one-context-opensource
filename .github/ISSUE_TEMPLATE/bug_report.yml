@@ -1,0 +1,90 @@
+name: Bug report
+description: Report a reproducible problem with the onecxt CLI or generated surfaces.
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: One or two sentences on the problem and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal commands and manifest excerpts needed to reproduce.
+      placeholder: |
+        1. onecxt doctor
+        2. onecxt adapt dev
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Actual output
+      description: Paste the relevant CLI output or error traceback.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: command
+    attributes:
+      label: Affected command
+      multiple: true
+      options:
+        - doctor
+        - adapt
+        - context export
+        - sync
+        - worktree
+        - skills
+        - smart-commit
+        - profile / workspace / agent / repo list
+        - other
+    validations:
+      required: true
+  - type: dropdown
+    id: adapter
+    attributes:
+      label: Affected adapter (if adapt-related)
+      multiple: true
+      options:
+        - claude_code
+        - codex
+        - cursor
+        - hermes
+        - openclaw
+        - opencode
+        - pi
+        - not adapt-related
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Output of `onecxt --version`, `python --version`, OS, and how the
+        package was installed.
+      placeholder: |
+        onecxt 0.1.0
+        Python 3.12.x
+        OS: ...
+        install: pip install -e ./packages/one-context
+    validations:
+      required: true
+  - type: input
+    id: privacy
+    attributes:
+      label: Privacy check
+      description: Confirm you removed any private manifest content (URLs, names, tokens) from this report.
+      placeholder: "I have removed private content from this report"
+    validations:
+      required: true

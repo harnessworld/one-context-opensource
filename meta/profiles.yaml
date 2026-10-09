@@ -1,0 +1,172 @@
+# Shared AI/runtime profiles.
+# These profiles are canonical and tool-neutral.
+# Adapters may translate them for specific tools, but should not redefine intent.
+#
+# Fields:
+#   id              — Stable profile id
+#   name            — Human-friendly profile name
+#   description     — Purpose of the profile
+#   mode            — High-level operating mode
+#   extends         — (optional) Parent profile id (single-layer only)
+#   mixins          — (optional) List of mixin ids to apply
+#   behavior        — Expectations for planning, editing, testing, and safety
+#   context_policy  — How much context to load and from where
+#   output_style    — Preferred answer and change-reporting style
+#                     tone: minimal | concise | structured (see mixin output-concise)
+#                     plain_language: true | false
+#                     visuals: when_helpful
+#
+# Merge order: extends parent → mixins (declared order, later wins) → self fields.
+# Dict values are deep-merged; all other types (lists, scalars) are replaced.
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# Mixins — reusable behavior fragments, applied via profile `mixins` field
+# ---------------------------------------------------------------------------
+
+mixins:
+  - id: strict-review
+    name: Strict Review
+    description: Conservative safety and structured output for production-critical work.
+    behavior:
+      safety_level: conservative
+    output_style:
+      tone: structured
+
+  - id: fast-iteration
+    name: Fast Iteration
+    description: Skip planning, narrow scope — for rapid prototyping and experimentation.
+    behavior:
+      plan_first: false
+      change_scope: focused
+
+  - id: doc-heavy
+    name: Documentation Heavy
+    description: Prioritise documentation loading and structured output.
+    context_policy:
+      load:
+        - repo-readme
+        - local-docs
+        - workspace-knowledge
+        - api-docs
+    output_style:
+      tone: structured
+      include_verification: true
+
+  - id: output-concise
+    name: Concise Output (lighter)
+    description: >-
+      Shorter replies without full minimal-mode rules. Use on profiles that extend
+      default-coding when you want tone concise instead of minimal.
+    output_style:
+      tone: concise
+
+# ---------------------------------------------------------------------------
+# Profiles
+# ---------------------------------------------------------------------------
+
+profiles:
+  # ── Base profiles (no extends) ──────────────────────────────────────────
+
+  - id: default-coding
+    name: Default Coding
+    description: >-
+      Balanced editing profile for normal implementation work across repositories.
+      Default output is minimal and plain-language, with visual formats used only when
+      they materially improve understanding. The user can request a different style or
+      detail level.
+    mode: edit
+    behavior:
+      plan_first: false
+      test_expectation: targeted
+      safety_level: standard
+      change_scope: focused
+    context_policy:
+      load:
+        - repo-readme
+        - local-docs
+        - workspace-knowledge
+      prefer:
+        - canonical-rules
+        - existing-project-conventions
+    output_style:
+      tone: minimal
+      plain_language: true
+      visuals: when_helpful
+      include_verification: true
+
+  - id: default-coding-lighter
+    name: Default Coding (lighter tone)
+    extends: default-coding
+    description: >-
+      Same as default-coding but output_style tone concise (less aggressive than minimal).
+    mixins:
+      - output-concise
+
+  - id: repo-architecture
+    name: Repository Architecture
+    description: Planning and review profile for structure, boundaries, and system design.
+    mode: review
+    behavior:
+      plan_first: true
+      test_expectation: advisory
+      safety_level: conservative
+      change_scope: broad
+    context_policy:
+      load:
+        - repo-readme
+        - manifest-files
+        - workspace-knowledge
+      prefer:
+        - architecture-docs
+        - conventions
+        - migration-notes
+    output_style:
+      tone: structured
+      plain_language: true
+      visuals: when_helpful
+      include_verification: false
+
+  # ── Derived coding profiles (extends default-coding) ────────────────────
+
+  - id: frontend-coding
+    name: Frontend Coding
+    extends: default-coding
+    description: Frontend-focused profile with visual/snapshot testing and component scope.
+    behavior:
+      test_expectation: visual+snapshot
+      change_scope: component-scoped
+
+  - id: backend-coding
+    name: Backend Coding
+    extends: default-coding
+    description: Backend-focused profile with integration testing and conservative safety.
+    behavior:
+      test_expectation: integration
+      safety_level: conservative
+
+  - id: data-coding
+    name: Data Coding
+    extends: default-coding
+    description: Data pipeline and analytics profile with data-validation testing.
+    behavior:
+      test_expectation: data-validation
+      change_scope: pipeline-scoped
+
+  - id: mobile-coding
+    name: Mobile Coding
+    extends: default-coding
+    description: Mobile development profile with device testing expectations.
+    behavior:
+      test_expectation: device+emulator
+      change_scope: screen-scoped
+
+  # ── Derived architecture profile ────────────────────────────────────────
+
+  - id: strict-architecture
+    name: Strict Architecture
+    extends: repo-architecture
+    description: Architecture profile with strict-review mixin for production-critical decisions.
+    mixins:
+      - strict-review

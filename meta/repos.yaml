@@ -1,0 +1,24 @@
+# one-context repository registry (sample).
+#
+# This file ships with an EMPTY registry so the framework is runnable out of
+# the box: `onecxt doctor`, `onecxt adapt` and `onecxt context export` all
+# work without any external repository being present.
+#
+# To bring your own repositories under the workspace, add entries below.
+# `onecxt sync` clones missing repos and fast-forwards existing ones.
+#
+# Schema (see docs/configuration.md):
+#
+#   repos:
+#     - id: my-app            # optional; defaults to repo name from URL
+#       url: https://example.com/your-org/my-app.git
+#       category: develop     # used when 'path' is omitted
+#       path: repos/develop/my-app   # optional explicit path (must stay in root)
+#       alias: [app, web]     # optional short names for `onecxt sync <alias>`
+#       description: Optional free text
+#
+# Notes:
+#   - Clones land inside the workspace root (ignored via repos/ in .gitignore).
+#   - IDs and aliases must be unique (case-insensitive).
+
+repos: []

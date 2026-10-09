@@ -1,0 +1,52 @@
+name: Feature request
+description: Propose an improvement to one-context (framework, CLI, or adapters).
+title: "[request] "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What task is painful or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: |
+        Sketch the behavior change. For manifest or CLI changes, show the
+        before/after YAML or command line.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you tried and why they are insufficient.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - manifests (meta/*.yaml)
+        - adapters / generated surfaces
+        - doctor / validation
+        - context export
+        - sync / worktree
+        - skills
+        - smart-commit
+        - docs / samples
+        - other
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This request is framework-generic (not tied to a private repository, personal provider configuration, or machine-specific setup).
+          required: true

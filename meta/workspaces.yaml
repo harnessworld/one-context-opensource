@@ -1,0 +1,34 @@
+# one-context workspace definitions (sample).
+#
+# A workspace binds three things for one slice of your work:
+#   - repos:     which repositories from meta/repos.yaml are in scope
+#   - profiles:  shared behavior/output profiles from meta/profiles.yaml
+#   - context:   knowledge paths plus free-text summary/focus for the tools
+#
+# `onecxt adapt <workspace-id>` regenerates every tool surface from these
+# sources. Keep this file as the single source of truth; do not hand-edit
+# generated files.
+#
+# See docs/configuration.md for the full schema.
+
+workspaces:
+  - id: dev
+    name: Development Workspace
+    description: >-
+      General engineering workspace for day-to-day implementation work
+      across all repositories in this one-context root.
+    # 'repos' omitted: this sample starts with zero repositories; list repo
+    # ids explicitly (e.g. `repos: [my-api]`) to put them in scope.
+    profiles:
+      - default-coding
+    context:
+      summary: >-
+        General engineering workspace. Work is repository-scoped,
+        convention-driven, and validated by targeted tests.
+      focus:
+        - Implement repository-scoped changes with targeted tests
+        - Follow canonical project rules and workspace conventions
+        - Keep generated tool surfaces in sync via `onecxt adapt`
+      knowledge:
+        - knowledge/01_Compiled/one-context/project-overview.md
+        - knowledge/01_Compiled/one-context/conventions.md

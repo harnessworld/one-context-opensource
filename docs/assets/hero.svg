@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="380" viewBox="0 0 1280 380" role="img" aria-labelledby="title desc">
+<title id="title">one-context — Shared context. Native tools.</title>
+<desc id="desc">One canonical context layer connects repositories, rules and knowledge to seven AI development tools.</desc>
+<defs><pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#233149" stroke-width=".7"/></pattern></defs>
+<rect width="1280" height="380" rx="20" fill="#0b1220"/>
+<rect x="720" width="560" height="380" fill="url(#grid)"/>
+<path d="M58 53h28v28H58z M70 65h28v28H70z" fill="none" stroke="#60a5fa" stroke-width="3"/>
+<g font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+<text x="114" y="76" fill="#94a3b8" font-size="15" letter-spacing="3">HARNESSWORLD / OPEN SOURCE</text>
+<text x="56" y="170" fill="#f8fafc" font-size="62" font-weight="700" letter-spacing="-2">one-context</text>
+<text x="60" y="221" fill="#93c5fd" font-size="28" font-weight="500">Shared context. Native tools.</text>
+<text x="60" y="277" fill="#94a3b8" font-size="18">A local-first context layer for AI development.</text>
+<text x="60" y="328" fill="#64748b" font-size="13" letter-spacing="1.5">ONE SOURCE OF TRUTH · SEVEN ADAPTERS · YOUR DATA</text>
+<g stroke="#334155" stroke-width="1.5" fill="none"><path d="M775 104H834V190H892 M775 190H892 M775 276H834V190"/><path d="M1004 190H1050V104H1108 M1004 190H1108 M1004 190H1050V276H1108"/></g>
+<g fill="#111e32" stroke="#334155"><rect x="685" y="81" width="100" height="46" rx="9"/><rect x="685" y="167" width="100" height="46" rx="9"/><rect x="685" y="253" width="100" height="46" rx="9"/></g>
+<g fill="#cbd5e1" font-size="15" text-anchor="middle"><text x="735" y="109">Repos</text><text x="735" y="195">Rules</text><text x="735" y="281">Knowledge</text></g>
+<rect x="878" y="148" width="142" height="84" rx="14" fill="#172c4f" stroke="#60a5fa" stroke-width="2"/>
+<text x="949" y="185" fill="#f1f5f9" font-size="19" font-weight="600" text-anchor="middle">onecxt</text><text x="949" y="209" fill="#93c5fd" font-size="12" text-anchor="middle">adapt · export · sync</text>
+<g fill="#111e32" stroke="#334155"><rect x="1095" y="81" width="128" height="46" rx="9"/><rect x="1095" y="167" width="128" height="46" rx="9"/><rect x="1095" y="253" width="128" height="46" rx="9"/></g>
+<g fill="#cbd5e1" font-size="14" text-anchor="middle"><text x="1159" y="109">Claude · Codex</text><text x="1159" y="195">Cursor · Pi</text><text x="1159" y="281">+ 3 adapters</text></g>
+</g></svg>
