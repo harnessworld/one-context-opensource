@@ -40,4 +40,9 @@ them here. No release has been published yet.
   on Python 3.12; Linux also on Python 3.10), issue forms, and a PR
   template.
 
+### Fixed
+
+- Generate evaluation run IDs without a Unix-specific temporary path, fixing
+  Windows failures and avoiding the previous same-second ID reuse.
+
 [Unreleased]: https://github.com/harnessworld/one-context-opensource/commits/main

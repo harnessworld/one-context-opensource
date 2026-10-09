@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import yaml
 
@@ -106,8 +107,8 @@ def _git_sha(at: Path) -> str:
 
 
 def _new_run_id() -> str:
-    """<unix秒>-<12hex>，时间排序友好。"""
-    return f"{int(time.time())}-{Path('/tmp').stat().st_mtime_ns:012x}"
+    """Return a sortable, filename-safe ID without filesystem dependencies."""
+    return f"{int(time.time())}-{uuid4().hex[:12]}"
 
 
 def quick_run(skill: str, case: str, *, skills_root: Path | None = None) -> QuickResult:

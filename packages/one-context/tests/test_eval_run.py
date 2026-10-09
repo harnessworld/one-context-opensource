@@ -342,3 +342,32 @@ def test_trace_summary_basic():
 def test_trace_summary_empty():
     s = _trace_summary_for_judge("", "anything")
     assert "无工具调用" in s
+
+
+# --- _new_run_id (portable + unique-same-second regression) ---
+
+def test_new_run_id_no_filesystem_and_unique(monkeypatch):
+    """Windows regression: old /tmp stat crashed on Windows and reused IDs
+    within the same second. New IDs must use no filesystem and be unique.
+    """
+    import pathlib
+    import re
+
+    from one_context.eval_lite.run import _new_run_id
+
+    fixed = 1_700_000_000
+    # freeze run.time.time so both calls land in the same unix second
+    monkeypatch.setattr("one_context.eval_lite.run.time.time", lambda: fixed)
+
+    # disable any filesystem stat inside the test (simulates missing /tmp)
+    def _no_stat(*args, **kwargs):
+        raise FileNotFoundError("filesystem access disallowed in this test")
+
+    monkeypatch.setattr(pathlib.Path, "stat", _no_stat)
+
+    id1 = _new_run_id()
+    id2 = _new_run_id()
+    assert id1 != id2, "same-second run IDs collided"
+    pat = re.compile(rf"^{fixed}-[0-9a-f]{{12}}$")
+    assert pat.fullmatch(id1), id1
+    assert pat.fullmatch(id2), id2
